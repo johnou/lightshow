@@ -1,6 +1,8 @@
 import http from 'node:http';
 import https from 'node:https';
 import dgram from 'node:dgram';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { extname, resolve, sep } from 'node:path';
@@ -9,6 +11,12 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('./public', import.meta.url)));
 const configPath = fileURLToPath(new URL('./.lightshow.json', import.meta.url));
 const port = Number(process.env.PORT || 4177);
+const lanEnabled = process.env.LIGHTSHOW_LAN === '1';
+const lanAddresses = Object.values(networkInterfaces()).flat().filter(x => x && x.family === 'IPv4' && !x.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(x.address)).map(x => x.address);
+const accessCode = process.env.LIGHTSHOW_CODE || randomBytes(9).toString('base64url');
+const sessionToken = randomBytes(32).toString('base64url');
+let loginAttempts = [];
+
 let config = {};
 try { config = JSON.parse(await readFile(configPath, 'utf8')); } catch {}
 const govee = new Map();
@@ -50,11 +58,36 @@ async function setLight(light, rgb, brightness) {
 async function bodyOf(req) { let data = ''; for await (const chunk of req) { data += chunk; if (data.length > 16_384) throw new Error('Request too large'); } return JSON.parse(data || '{}'); }
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
-  if (origin && !origins.has(origin)) return json(res, 403, { error: 'Origin not allowed' });
+  const host = req.headers.host;
+  const hostnames = new Set([`localhost:${port}`, `127.0.0.1:${port}`, ...lanAddresses.map(ip => `${ip}:${port}`)]);
+  if (!hostnames.has(host)) return json(res, 403, { error: 'Host not allowed' });
+  const localOrigin = `http://${host}`;
+  const isLanHost = !host.startsWith('localhost:') && !host.startsWith('127.0.0.1:');
+  const isLoopback = req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::ffff:127.0.0.1' || req.socket.remoteAddress === '::1';
+  if (!isLoopback && !isLanHost) return json(res, 403, { error: 'Host not allowed' });
+  if (origin && origin !== localOrigin && !(!isLanHost && origins.has(origin))) return json(res, 403, { error: 'Origin not allowed' });
   if (origin) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); res.setHeader('Access-Control-Allow-Private-Network', 'true'); }
   if (req.method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' }); return res.end(); }
   const url = new URL(req.url, `http://localhost:${port}`);
   try {
+    if (url.pathname === '/api/login' && req.method === 'POST') {
+      if (!lanEnabled || !isLanHost || origin !== localOrigin || !req.headers['content-type']?.startsWith('application/json')) return json(res, 403, { error: 'Login unavailable' });
+      const now = Date.now(); loginAttempts = loginAttempts.filter(time => now - time < 60000);
+      if (loginAttempts.length >= 10) return json(res, 429, { error: 'Too many attempts. Try again in a minute.' });
+      loginAttempts.push(now);
+      const { code } = await bodyOf(req);
+      const candidate = Buffer.from(typeof code === 'string' ? code : '');
+      const expected = Buffer.from(accessCode);
+      if (candidate.length !== expected.length || !timingSafeEqual(candidate, expected)) return json(res, 401, { error: 'Incorrect connection code.' });
+      loginAttempts = [];
+      res.setHeader('Set-Cookie', `lightshow_session=${sessionToken}; HttpOnly; SameSite=Strict; Path=/`);
+      return json(res, 200, { ok: true });
+    }
+    if (url.pathname.startsWith('/api/') && isLanHost) {
+      const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map(item => item.trim().split('=')));
+      if (!lanEnabled || cookies.lightshow_session !== sessionToken) return json(res, 401, { error: 'Connection code required', loginRequired: true });
+      if (req.method !== 'GET' && origin !== localOrigin) return json(res, 403, { error: 'Origin not allowed' });
+    }
     if (url.pathname === '/api/status' && req.method === 'GET') { let hue = []; let hueError = ''; try { hue = await refreshHue(); } catch (error) { hueError = error.message; } return json(res, 200, { lights: [...hue, ...govee.values()], paired: !!config.hue, hueError }); }
     if (url.pathname === '/api/hue/pair' && req.method === 'POST') { const { ip, username } = await bodyOf(req); if (!isPrivateIp(ip)) throw new Error('Enter a private IPv4 address for your Bridge.'); if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{10,128}$/.test(username)) throw new Error('Enter an existing authorized Bridge username.'); await hueRequest(ip, `/api/${username}/lights`); config.hue = { ip, username }; await writeFile(configPath, JSON.stringify(config), { mode: 0o600 }); return json(res, 200, { lights: await refreshHue() }); }
     if (url.pathname === '/api/govee/scan' && req.method === 'POST') return json(res, 200, { lights: await scanGovee() });
@@ -63,4 +96,10 @@ const server = http.createServer(async (req, res) => {
     const pathname = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname); const path = resolve(root, '.' + pathname); if (!path.startsWith(root + sep)) return json(res, 403, { error: 'Forbidden' }); const data = await readFile(path); const mime = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.webmanifest':'application/manifest+json' }[extname(path)] || 'application/octet-stream'; res.writeHead(200, { 'Content-Type': mime }); res.end(data);
   } catch (error) { json(res, 400, { error: error.message }); }
 });
-server.listen(port, '127.0.0.1', () => console.log(`Lightshow companion running at http://localhost:${port}`));
+server.listen(port, lanEnabled ? '0.0.0.0' : '127.0.0.1', () => {
+  console.log(`Lightshow companion running at http://localhost:${port}`);
+  if (lanEnabled) {
+    for (const ip of lanAddresses) console.log(`Phone on your Wi-Fi: http://${ip}:${port}`);
+    console.log(`Connection code: ${accessCode}`);
+  }
+});
