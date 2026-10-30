@@ -13,7 +13,7 @@ let config = {};
 try { config = JSON.parse(await readFile(configPath, 'utf8')); } catch {}
 const govee = new Map();
 let hueLights = new Map();
-const origins = new Set(['https://johnou.github.io', `http://localhost:${port}`, `http://127.0.0.1:${port}`]);
+const origins = new Set(['https://johnou.github.io', 'https://just.johno.it', `http://localhost:${port}`, `http://127.0.0.1:${port}`]);
 const isPrivateIp = ip => isIP(ip) === 4 && (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip));
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 function hueRequest(ip, path, method = 'GET', body) {

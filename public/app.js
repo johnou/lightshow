@@ -5,7 +5,7 @@ const scenes = [
   { id:'dream', name:'Daydream After Dark', subtitle:'Let your mind wander', label:'UNWIND', symbol:'✦', colors:[[107,95,244],[224,94,181],[92,146,255],[165,95,218]] }
 ];
 const $ = id => document.getElementById(id);
-const apiBase = location.hostname === 'johnou.github.io' ? 'http://127.0.0.1:4177' : '';
+const apiBase = ['johnou.github.io', 'just.johno.it'].includes(location.hostname) ? 'http://127.0.0.1:4177' : '';
 let current = scenes[0], lights = [], selected = new Set(JSON.parse(localStorage.getItem('lightshow-selected') || '[]')), running = false, timer, step = 0, busy = false, audioUrl, analyser, audioContext, audioSource;
 const audio = $('audio');
 async function api(path, options = {}) { const response = await fetch(apiBase + path, { ...options, headers: { 'Content-Type': 'application/json' } }); const data = await response.json(); if (!response.ok) throw new Error(data.error || data.errors?.join('; ') || 'Request failed'); return data; }
