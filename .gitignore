@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.lightshow.json
+.DS_Store
