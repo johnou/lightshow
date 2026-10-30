@@ -1,0 +1,19 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { SystemAudio } from '../system-audio.js';
+
+test('system audio starts, reads levels and stops without reporting a failure', async t => {
+  const dir=await mkdtemp(join(tmpdir(),'lightshow-system-test-'));
+  t.after(() => rm(dir,{recursive:true,force:true}));
+  const helper=join(dir,'fake-helper');
+  await writeFile(helper, `#!/usr/bin/env node\nconsole.error('ready'); setInterval(() => console.log('0.42'), 20);\n`, { mode:0o755 });
+  const levels=[], errors=[];
+  const audio=new SystemAudio(level=>levels.push(level),error=>errors.push(error));
+  t.after(() => audio.stop());
+  await audio.start(helper); await sleep(80); audio.stop(); await sleep(20);
+  assert.ok(levels.includes(0.42)); assert.deepEqual(errors,[]);
+});

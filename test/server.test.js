@@ -23,3 +23,15 @@ test('rejects untrusted origins and invalid device requests', async () => {
   const badShow = await fetch(`${base}/api/show`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ids:['hue:99'], colors:[[255,0,0]], brightness:50 }) }); assert.equal(badShow.status, 400);
 });
 test('provides install icons', async () => { for (const size of [192, 512]) { const response = await fetch(`${base}/icon-${size}.png`); assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), 'image/png'); } });
+
+test('show controls validate input and expose stopped state', async () => {
+  const status = await fetch(`${base}/api/status`);
+  assert.equal((await status.json()).show.running, false);
+  const start = await fetch(`${base}/api/show/start`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ids:[], palette:[[1,2,3]], scene:'test', pace:1500, brightness:50, musicSync:false, musicSource:'none' }) });
+  assert.equal(start.status, 400);
+  const stop = await fetch(`${base}/api/show/stop`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' });
+  assert.equal(stop.status, 200);
+  assert.equal((await stop.json()).running, false);
+  const upload = await fetch(`${base}/api/music?ext=exe`, { method:'POST', headers:{ 'Content-Type':'application/octet-stream' }, body:'invalid' });
+  assert.equal(upload.status, 400);
+});
