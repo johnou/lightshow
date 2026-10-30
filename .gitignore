@@ -1,4 +1,5 @@
 node_modules/
 dist/
 .lightshow.json
+.lightshow-govee.json
 .DS_Store

@@ -1,14 +1,18 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const port = 4189;
 const base = `http://127.0.0.1:${port}`;
-let server;
+let server, dataDir;
 before(async () => {
-  server = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  dataDir = await mkdtemp(join(tmpdir(), 'lightshow-test-'));
+  server = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), LIGHTSHOW_DATA_DIR:dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', code => reject(new Error(`Server exited ${code}`))); setTimeout(() => reject(new Error('Server did not start')), 5000).unref(); });
 });
-after(() => server?.kill());
+after(async () => { server?.kill(); await rm(dataDir, { recursive:true, force:true }); });
 test('serves the app and reports device status', async () => {
   const page = await fetch(base); assert.equal(page.status, 200); assert.match(await page.text(), /Make room for/);
   const status = await fetch(`${base}/api/status`); assert.equal(status.status, 200); assert.ok(Array.isArray((await status.json()).lights));

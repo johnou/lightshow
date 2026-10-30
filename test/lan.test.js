@@ -2,13 +2,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 
 test('LAN controls require a session and reject other origins', async t => {
   const address = Object.values(networkInterfaces()).flat().find(x => x && x.family === 'IPv4' && !x.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(x.address))?.address;
   if (!address) return t.skip('No private network interface');
   const port = 4188;
-  const server = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), LIGHTSHOW_LAN:'1', LIGHTSHOW_CODE:'test-code-123' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dataDir = await mkdtemp(join(tmpdir(), 'lightshow-lan-test-'));
+  t.after(() => rm(dataDir, { recursive:true, force:true }));
+  const server = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), LIGHTSHOW_LAN:'1', LIGHTSHOW_CODE:'test-code-123', LIGHTSHOW_DATA_DIR:dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => server.kill());
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', code => reject(new Error(`Server exited ${code}`))); setTimeout(() => reject(new Error('Server did not start')), 5000).unref(); });
   const url = `http://127.0.0.1:${port}`;

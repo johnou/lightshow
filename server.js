@@ -5,11 +5,13 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { extname, resolve, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./public', import.meta.url)));
-const configPath = fileURLToPath(new URL('./.lightshow.json', import.meta.url));
+const dataRoot = process.env.LIGHTSHOW_DATA_DIR ? resolve(process.env.LIGHTSHOW_DATA_DIR) : fileURLToPath(new URL('.', import.meta.url));
+const configPath = join(dataRoot, '.lightshow.json');
+const goveePath = join(dataRoot, '.lightshow-govee.json');
 const port = Number(process.env.PORT || 4177);
 const lanEnabled = process.env.LIGHTSHOW_LAN === '1';
 const lanAddresses = Object.values(networkInterfaces()).flat().filter(x => x && x.family === 'IPv4' && !x.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(x.address)).map(x => x.address);
@@ -20,9 +22,13 @@ let loginAttempts = [];
 let config = {};
 try { config = JSON.parse(await readFile(configPath, 'utf8')); } catch {}
 const govee = new Map();
+let knownGovee = [];
+try { knownGovee = JSON.parse(await readFile(goveePath, 'utf8')); } catch {}
 let hueLights = new Map();
 const origins = new Set(['https://johnou.github.io', 'https://just.johno.it', `http://localhost:${port}`, `http://127.0.0.1:${port}`]);
 const isPrivateIp = ip => isIP(ip) === 4 && (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip));
+knownGovee = Array.isArray(knownGovee) ? knownGovee.filter(d => d && typeof d.id === 'string' && d.id.startsWith('govee:') && typeof d.name === 'string' && isPrivateIp(d.ip)).slice(0, 100) : [];
+for (const light of knownGovee) govee.set(light.id, { ...light, brand: 'Govee', reachable: false, color: true });
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 function hueRequest(ip, path, method = 'GET', body) {
   return new Promise((resolve, reject) => {
@@ -39,14 +45,43 @@ async function refreshHue() {
   hueLights = new Map(Object.entries(lights).map(([id, light]) => [`hue:${id}`, { id: `hue:${id}`, name: light.name, brand: 'Hue', reachable: light.state.reachable, color: Boolean(light.state.xy || light.state.hue !== undefined) }]));
   return [...hueLights.values()];
 }
+let scanInFlight;
 function scanGovee() {
+  if (!scanInFlight) scanInFlight = scanGoveeInner().finally(() => { scanInFlight = undefined; });
+  return scanInFlight;
+}
+function scanGoveeInner() {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true }); let finished = false;
-    const done = error => { if (finished) return; finished = true; clearTimeout(timer); socket.close(); error ? reject(error) : resolve([...govee.values()]); };
-    const timer = setTimeout(() => done(), 2200);
+    const done = async error => {
+      if (finished) return; finished = true; clearTimeout(timer); socket.close();
+      if (error) return reject(error);
+      try { await writeFile(goveePath, JSON.stringify([...govee.values()]), { mode: 0o600 }); resolve([...govee.values()]); } catch (err) { reject(err); }
+    };
+    const timer = setTimeout(() => done(), 3000);
     socket.on('error', done);
-    socket.on('message', (packet, remote) => { try { const { msg } = JSON.parse(packet.toString()); if (msg.cmd !== 'scan' || !msg.data?.device || !isPrivateIp(remote.address)) return; const d = msg.data; govee.set(`govee:${d.device}`, { id: `govee:${d.device}`, name: `Govee ${d.sku || 'light'} · ${d.device.slice(-5)}`, brand: 'Govee', ip: remote.address, reachable: true, color: true }); } catch {} });
-    socket.bind(4002, () => { socket.setMulticastTTL(2); const payload = Buffer.from(JSON.stringify({ msg: { cmd: 'scan', data: { account_topic: 'reserve' } } })); socket.send(payload, 4001, '239.255.255.250', error => { if (error) done(error); }); });
+    socket.on('message', (packet, remote) => {
+      try {
+        const { msg } = JSON.parse(packet.toString());
+        if (!isPrivateIp(remote.address)) return;
+        if (msg.cmd === 'scan' && msg.data?.device) {
+          const d = msg.data;
+          const old = [...govee.values()].find(light => light.ip === remote.address);
+          if (old && old.id !== `govee:${d.device}`) govee.delete(old.id);
+          govee.set(`govee:${d.device}`, { id: `govee:${d.device}`, name: `Govee ${d.sku || 'light'} · ${d.device.slice(-5)}`, brand: 'Govee', ip: remote.address, reachable: true, color: true });
+        } else if (msg.cmd === 'devStatus' && msg.data) {
+          const known = [...govee.values()].find(light => light.ip === remote.address);
+          if (known) govee.set(known.id, { ...known, reachable: true });
+        }
+      } catch {}
+    });
+    socket.bind(4002, () => {
+      socket.setMulticastTTL(2);
+      const payload = Buffer.from(JSON.stringify({ msg: { cmd: 'scan', data: { account_topic: 'reserve' } } }));
+      socket.send(payload, 4001, '239.255.255.250', error => { if (error) done(error); });
+      const status = Buffer.from(JSON.stringify({ msg: { cmd: 'devStatus', data: {} } }));
+      for (const light of govee.values()) { light.reachable = false; socket.send(status, 4003, light.ip, error => { if (error) done(error); }); }
+    });
   });
 }
 function sendGovee(ip, cmd, data) { return new Promise((resolve, reject) => { const socket = dgram.createSocket('udp4'); const payload = Buffer.from(JSON.stringify({ msg: { cmd, data } })); socket.send(payload, 4003, ip, error => { socket.close(); error ? reject(error) : resolve(); }); }); }
