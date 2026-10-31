@@ -8,3 +8,11 @@ test('detects peaks while limiting repeated beats', () => {
   for (let i=0;i<40;i++) detector.feed(0.01,1300+i*20);
   detector.feed(0.8,2200); assert.equal(beats,2);
 });
+test('detects a steady 120 BPM pulse without skipping alternate beats', () => {
+  const beats=[]; const detector=new BeatDetector(() => beats.push(true));
+  for (let time=1000; time<3100; time+=20) {
+    const phase=(time-1000)%500;
+    detector.feed(phase<60 ? 0.55 : 0.015, time);
+  }
+  assert.equal(beats.length,5);
+});

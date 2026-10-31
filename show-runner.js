@@ -32,9 +32,10 @@ export class ShowRunner {
   }
 
   beat() {
-    if (!this.show?.musicSync || this.inFlight || Date.now() - this.lastFrame < Math.max(600, this.show.ids.filter(id => id.startsWith('hue:')).length * 110)) return;
+    if (!this.show?.musicSync || this.inFlight || Date.now() - this.lastFrame < Math.max(250, this.show.ids.filter(id => id.startsWith('hue:')).length * 110)) return false;
     clearTimeout(this.timer);
     this.tick(this.generation);
+    return true;
   }
 
   async tick(generation) {

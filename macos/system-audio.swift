@@ -5,6 +5,7 @@ import CoreMedia
 import AVFoundation
 
 final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
+    private var bass: [Float] = []
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, sampleBuffer.isValid else { return }
         try? sampleBuffer.withAudioBufferList { list, _ in
@@ -14,12 +15,20 @@ final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
                   let channels = pcm.floatChannelData else { return }
             let count = Int(pcm.frameLength)
             guard count > 0 else { return }
+            let channelCount = Int(format.channelCount)
+            if bass.count != channelCount { bass = Array(repeating: 0, count: channelCount) }
+            let alpha = Float(1.0 - exp(-2.0 * Double.pi * 180.0 / description.mSampleRate))
             var sum: Float = 0
-            for channel in 0..<Int(format.channelCount) {
-                for index in 0..<count { let value = channels[channel][index]; sum += value * value }
+            for channel in 0..<channelCount {
+                var filtered = bass[channel]
+                for index in 0..<count {
+                    filtered += alpha * (channels[channel][index] - filtered)
+                    sum += filtered * filtered
+                }
+                bass[channel] = filtered
             }
-            let rms = sqrt(sum / Float(count * Int(format.channelCount)))
-            print(String(format: "%.5f", min(1.0, rms * 4.0)))
+            let rms = sqrt(sum / Float(count * channelCount))
+            print(String(format: "%.5f", min(1.0, rms * 6.0)))
             fflush(stdout)
         }
     }
@@ -33,7 +42,7 @@ func runSystemAudio() {
 Task {
     do {
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
-            fputs("Allow Screen & System Audio Recording for the terminal running Lightshow, then restart the companion.\n", stderr)
+            fputs("Allow Screen & System Audio Recording for Lightshow (or the terminal running it), then restart it.\n", stderr)
             exit(2)
         }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)

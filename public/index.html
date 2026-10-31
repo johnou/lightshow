@@ -33,13 +33,13 @@
             <div class="media-buttons"><button class="small-button" id="open-youtube">Open YouTube Music</button><button class="small-button" data-media="previous" aria-label="Previous track">◀◀</button><button class="small-button" data-media="playpause" aria-label="Play or pause music">▶ / Ⅱ</button><button class="small-button" data-media="next" aria-label="Next track">▶▶</button></div>
             <form id="music-link-form" class="link-form"><label class="sr-only" for="music-link">YouTube Music song or playlist link</label><input id="music-link" type="url" placeholder="Paste a song or playlist link" required><button class="small-button" type="submit">Open on Mac</button></form>
             <div id="save-link-row" class="save-link-row" hidden><label class="sr-only" for="music-link-name">Name for saved link</label><input id="music-link-name" maxlength="80" placeholder="Name this song or playlist"><button class="small-button" id="save-music-link" type="button">Save</button></div>
-            <div id="saved-links" class="saved-links"></div><p class="hint">Links open in YouTube Music on your Mac. Playback may need a click there.</p>
+            <div id="saved-links" class="saved-links"></div><p class="hint">Links open in YouTube Music on your Mac. Playback may need a click there.</p><p class="hint" id="music-activity" role="status"></p>
           </div>
           <label class="sync-toggle"><span>React to the beat</span><input type="checkbox" id="music-sync"></label>
         </section>
         <section class="card lights-panel" id="lights" aria-labelledby="lights-heading">
           <div class="section-heading"><div><h2 id="lights-heading">Lights <span id="light-count" class="count">0</span></h2><p>Select lights for this show.</p></div><button class="icon-button" id="scan" title="Find lights" aria-label="Find lights">↻</button></div>
-          <div id="lights-list" class="lights-list"></div>
+          <label class="all-lights"><span>Include all available lights</span><input type="checkbox" id="all-lights" checked></label><div id="lights-list" class="lights-list"></div>
         </section>
       </div>
     </div>

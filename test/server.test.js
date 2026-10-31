@@ -26,7 +26,9 @@ test('provides install icons', async () => { for (const size of [192, 512]) { co
 
 test('show controls validate input and expose stopped state', async () => {
   const status = await fetch(`${base}/api/status`);
-  assert.equal((await status.json()).show.running, false);
+  const initial = await status.json();
+  assert.equal(initial.show.running, false);
+  assert.equal(initial.show.audio.beats, 0);
   const start = await fetch(`${base}/api/show/start`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ids:[], palette:[[1,2,3]], scene:'test', pace:1500, brightness:50, musicSync:false, musicSource:'none' }) });
   assert.equal(start.status, 400);
   const stop = await fetch(`${base}/api/show/stop`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' });
