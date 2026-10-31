@@ -14,7 +14,7 @@ export class GoveeBass {
     this.peak = Math.max(this.peak, bass);
     if (this.pending || now - this.last < 250) return;
     this.last = now;
-    const level = Math.max(1, Math.round(brightness * (0.08 + 0.92 * Math.sqrt(Math.min(1, this.peak)))));
+    const level = Math.max(1, Math.round(brightness * (0.03 + 0.97 * Math.sqrt(Math.min(1, this.peak * 6)))));
     this.peak = 0;
     const wanted = new Set(lights.map(light => light.id));
     for (const id of this.colors.keys()) if (!wanted.has(id)) this.colors.delete(id);

@@ -8,7 +8,7 @@ test('ordinary Govee control follows bass peaks without resending colors every f
   const lights=[{id:'one',ip:'192.168.1.53'}], palette=[[255,40,0]];
   await bass.update(lights,palette,80,0,0);
   const quiet=sent.at(-1).data.value;
-  bass.update(lights,palette,80,1,100);
+  bass.update(lights,palette,80,0.2,100);
   await bass.update(lights,palette,80,0,250);
   assert.ok(sent.at(-1).data.value > quiet);
   assert.equal(sent.at(-1).data.value,80);
