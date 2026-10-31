@@ -130,7 +130,7 @@ const ledfx = new LedFxEngine({ python:ledfxPython, onFrame: colors => { ledfxFr
 const detectedBeat = () => { if (showRunner?.beat()) { lastAppliedBeat = Date.now(); appliedBeats++; } };
 let beatDetector = new BeatDetector(detectedBeat);
 let musicEnergy = new MusicEnergy();
-const audioSample = ({ bass, loudness, mid, high }) => { audioLevel = bass; const show = showRunner?.status(); if (show?.running && show.musicSync && !show.goveeStreaming) goveeBass.update(show.ids.map(id => govee.get(id)).filter(Boolean), show.palette, show.brightness, bass); lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample, { bass, mid, high }); const onset = showRunner?.show?.musicStyle === 'immersive' ? Math.max(bass, mid * 0.55, high * 0.45) : bass; beatDetector.feed(onset, lastAudioSample); };
+const audioSample = ({ bass, loudness, mid, high }) => { audioLevel = bass; goveeBass.feed({ bass, loudness, mid, high }); lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample, { bass, mid, high }); const onset = showRunner?.show?.musicStyle === 'immersive' ? Math.max(bass, mid * 0.55, high * 0.45) : bass; beatDetector.feed(onset, lastAudioSample); };
 function showStatus() { return { ...showRunner.status(), warnings:[...showWarnings, ...goveeBass.errors, ...(entertainment.warning ? [entertainment.warning] : []), ...goveeStream.status().failures.map(failure => `${failure.id}: ${failure.message}`)], hueEntertainment:entertainment.area?.name || null, goveeStreamingCount:goveeStream.status().submitted.length, ledfx:ledfx.stats, audio: { level:audioLevel, energy:musicEnergy.snapshot().state, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
 const audioFailure = message => { if (showRunner) changeShow(() => showRunner.fail(message)); };
 const audioPCM = frame => { if (ledfx.ready) ledfx.feed(frame); };
@@ -223,6 +223,7 @@ async function reconcileAvailableLights(generation = showRunner.generation) {
     showRunner.update({ ids });
   }
   const next = showRunner.status();
+  await goveeBass.configure(next, next.ids.map(id => govee.get(id)).filter(Boolean));
   await goveeStream.reconcile(goveeSelection(next), next.brightness);
   if (changed) {
     await entertainment.start(entertainmentConfig(), entertainmentSelection(ids, hueLights.keys(), current.includeAll));
@@ -352,6 +353,7 @@ const server = http.createServer(async (req, res) => {
       try {
         if (showRunner.inFlight) await showRunner.inFlight;
         await goveeStream.start(goveeSelection(settings), settings.brightness);
+        await goveeBass.configure(settings, settings.ids.map(id => govee.get(id)).filter(Boolean));
         await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll));
         primeEntertainment(settings);
         await configureLedFx(settings);
@@ -372,6 +374,7 @@ const server = http.createServer(async (req, res) => {
       if (musicChanged) { clearInterval(ledfxTimer); ledfxTimer = null; ledfxFrame = null; }
       if (hueChanged) await entertainment.stop();
       const status = showRunner.update(settings);
+      await goveeBass.configure(settings, settings.ids.map(id => govee.get(id)).filter(Boolean));
       await goveeStream.reconcile(goveeSelection(settings), settings.brightness);
       if (hueChanged) await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll));
       if (hueChanged || current.goveeStreaming !== settings.goveeStreaming) primeEntertainment(settings);

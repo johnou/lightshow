@@ -1,43 +1,54 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { BeatDetector } from './beat-detector.js';
+import { MusicEnergy } from './music-energy.js';
+import { ShowRunner } from './show-runner.js';
 
 export class GoveeBass {
   constructor(send) {
     this.send = send;
-    this.colors = new Map();
-    this.peak = 0;
-    this.last = -Infinity;
-    this.pending = null;
+    this.lights = new Map();
     this.errors = [];
+    this.energy = new MusicEnergy();
+    this.runner = new ShowRunner(async (ids, colors, brightness) => {
+      const results = await Promise.allSettled(ids.map(async (id, i) => {
+        const light = this.lights.get(id);
+        if (!light) return;
+        await this.send(light.ip, 'turn', { value:1 });
+        await sleep(50);
+        await this.send(light.ip, 'brightness', { value:brightness });
+        await sleep(50);
+        const [r,g,b] = colors[i];
+        await this.send(light.ip, 'colorwc', { color:{r,g,b}, colorTemInKelvin:0 });
+      }));
+      this.errors = results.filter(result => result.status === 'rejected').map(result => result.reason.message);
+    }, { energy:() => this.energy.snapshot() });
+    this.detector = new BeatDetector(() => this.runner.beat());
   }
 
-  update(lights, palette, brightness, bass, now = Date.now()) {
-    this.peak = Math.max(this.peak, bass);
-    if (this.pending || now - this.last < 250) return;
-    this.last = now;
-    const level = Math.max(1, Math.round(brightness * (0.03 + 0.97 * Math.sqrt(Math.min(1, this.peak * 6)))));
-    this.peak = 0;
-    const wanted = new Set(lights.map(light => light.id));
-    for (const id of this.colors.keys()) if (!wanted.has(id)) this.colors.delete(id);
-    this.pending = Promise.allSettled(lights.map(async (light, i) => {
-      const [r,g,b] = palette[i % palette.length];
-      const key = `${light.ip}:${r},${g},${b}`;
-      if (this.colors.get(light.id) !== key) {
-        await this.send(light.ip, 'turn', { value:1 });
-        await sleep(100);
-        await this.send(light.ip, 'colorwc', { color:{r,g,b}, colorTemInKelvin:0 });
-        await sleep(100);
-        this.colors.set(light.id, key);
-      }
-      await this.send(light.ip, 'brightness', { value:level });
-    })).then(results => { this.errors = results.filter(result => result.status === 'rejected').map(result => result.reason.message); }).finally(() => { this.pending = null; });
-    return this.pending;
+  async configure(show, lights) {
+    if (!show.musicSync || show.goveeStreaming || !lights.length) return this.reset();
+    if (this.runner.inFlight) await this.runner.inFlight;
+    this.lights = new Map(lights.map(light => [light.id, light]));
+    const settings = { ...show, ids:[...this.lights.keys()], musicStyle:'beat' };
+    if (this.runner.status().running) this.runner.update(settings);
+    else {
+      this.energy = new MusicEnergy();
+      this.detector = new BeatDetector(() => this.runner.beat());
+      await this.runner.start(settings);
+      if (this.runner.inFlight) await this.runner.inFlight;
+    }
+    this.detector.setOffset(show.beatOffset || 0);
+  }
+
+  feed(sample, now = Date.now()) {
+    if (!this.runner.status().running) return;
+    this.energy.feed(sample.loudness, now, sample);
+    this.detector.feed(sample.bass, now);
   }
 
   async reset() {
-    await this.pending;
-    this.colors.clear();
-    this.peak = 0;
-    this.last = -Infinity;
+    await this.runner.stop();
+    this.lights.clear();
     this.errors = [];
   }
 }
