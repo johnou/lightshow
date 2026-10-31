@@ -3,4 +3,6 @@
 
 .all-lights{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;padding:0 0 12px;color:#e6e5eb}.all-lights input{accent-color:#d4eb89;width:16px;height:16px}
 
+.scene-art.haunted{--base:#202c2a;--one:#4bc77c;--two:#925ac5}.scene-art.winter{--base:#293a50;--one:#83bff4;--two:#d7eafa}.scene-art.aurora{--base:#203b42;--one:#39d2a1;--two:#668ade}.scene-art.party{--base:#382a40;--one:#ed428b;--two:#4589e9}
+
 .beat-offset{display:grid;gap:7px;margin-top:15px;color:#b7b6c0;font-size:11px;font-weight:600}.beat-offset>span:first-child{display:flex;justify-content:space-between}.beat-offset small{color:#aaa9b3;font-size:10px}.beat-offset input{width:100%;accent-color:#d4eb89}.offset-labels{display:flex;justify-content:space-between}

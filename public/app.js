@@ -1,8 +1,12 @@
 const scenes = [
   { id:'halloween', name:'Pumpkin After Dark', subtitle:'A little spooky, a lot of glow', label:'HALLOWEEN', symbol:'✳', colors:[[255,92,12],[144,35,196],[255,145,24],[96,10,124]] },
+  { id:'haunted', name:'Haunted House', subtitle:'Eerie greens and ghostly violet', colors:[[38,210,92],[105,35,176],[79,255,125],[45,12,95]] },
   { id:'christmas', name:'A Very Merry Glow', subtitle:'The cozy kind of Christmas', label:'CHRISTMAS', symbol:'✻', colors:[[224,25,26],[18,156,65],[255,179,82],[21,107,52]] },
+  { id:'winter', name:'Winter Wonderland', subtitle:'Icy blues and snowy whites', colors:[[90,170,255],[190,225,255],[72,110,230],[230,245,255]] },
   { id:'golden', name:'Golden Hour', subtitle:'For slow, softer evenings', label:'EVERYDAY', symbol:'☼', colors:[[255,163,65],[255,208,117],[255,118,54],[255,220,151]] },
-  { id:'dream', name:'Daydream After Dark', subtitle:'Let your mind wander', label:'UNWIND', symbol:'✦', colors:[[107,95,244],[224,94,181],[92,146,255],[165,95,218]] }
+  { id:'dream', name:'Daydream After Dark', subtitle:'Let your mind wander', label:'UNWIND', symbol:'✦', colors:[[107,95,244],[224,94,181],[92,146,255],[165,95,218]] },
+  { id:'aurora', name:'Northern Lights', subtitle:'A cool wash of color', colors:[[30,220,145],[40,140,230],[115,65,230],[40,210,200]] },
+  { id:'party', name:'Electric Party', subtitle:'Bright colors for big beats', colors:[[255,30,120],[55,90,255],[255,170,0],[0,220,210]] }
 ];
 const $ = id => document.getElementById(id);
 const apiBase = ['johnou.github.io', 'just.johno.it'].includes(location.hostname) ? 'http://127.0.0.1:4177' : '';
