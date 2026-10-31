@@ -10,10 +10,10 @@ test('system audio starts, reads levels and stops without reporting a failure', 
   const dir=await mkdtemp(join(tmpdir(),'lightshow-system-test-'));
   t.after(() => rm(dir,{recursive:true,force:true}));
   const helper=join(dir,'fake-helper');
-  await writeFile(helper, `#!/usr/bin/env node\nconsole.error('ready'); setInterval(() => console.log('0.42'), 20);\n`, { mode:0o755 });
+  await writeFile(helper, `#!/usr/bin/env node\nconsole.error('ready'); setInterval(() => console.log('0.42 0.61'), 20);\n`, { mode:0o755 });
   const levels=[], errors=[];
   const audio=new SystemAudio(level=>levels.push(level),error=>errors.push(error));
   t.after(() => audio.stop());
   await audio.start(helper); await sleep(80); audio.stop(); await sleep(20);
-  assert.ok(levels.includes(0.42)); assert.deepEqual(errors,[]);
+  assert.ok(levels.some(level => level.bass === 0.42 && level.loudness === 0.61)); assert.deepEqual(errors,[]);
 });

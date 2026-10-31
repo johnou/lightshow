@@ -19,16 +19,19 @@ final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
             if bass.count != channelCount { bass = Array(repeating: 0, count: channelCount) }
             let alpha = Float(1.0 - exp(-2.0 * Double.pi * 180.0 / description.mSampleRate))
             var sum: Float = 0
+            var fullSum: Float = 0
             for channel in 0..<channelCount {
                 var filtered = bass[channel]
                 for index in 0..<count {
                     filtered += alpha * (channels[channel][index] - filtered)
                     sum += filtered * filtered
+                    fullSum += channels[channel][index] * channels[channel][index]
                 }
                 bass[channel] = filtered
             }
             let rms = sqrt(sum / Float(count * channelCount))
-            print(String(format: "%.5f", min(1.0, rms * 6.0)))
+            let loudness = sqrt(fullSum / Float(count * channelCount))
+            print(String(format: "%.5f %.5f", min(1.0, rms * 6.0), min(1.0, loudness * 4.0)))
             fflush(stdout)
         }
     }

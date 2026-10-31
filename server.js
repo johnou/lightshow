@@ -7,6 +7,8 @@ import { ShowRunner } from './show-runner.js';
 import { MusicPlayer } from './music-player.js';
 import { SystemAudio } from './system-audio.js';
 import { BeatDetector } from './beat-detector.js';
+import { MusicEnergy } from './music-energy.js';
+import { HueEntertainment } from './hue-entertainment.js';
 import { ensureMacHelpers, mediaKey } from './mac-helpers.js';
 import { normalizeMusicURL } from './youtube-links.js';
 import { availableLightIds, resolveLightIds } from './light-selection.js';
@@ -43,11 +45,11 @@ const isPrivateIp = ip => isIP(ip) === 4 && (/^10\./.test(ip) || /^192\.168\./.t
 knownGovee = Array.isArray(knownGovee) ? knownGovee.filter(d => d && typeof d.id === 'string' && d.id.startsWith('govee:') && typeof d.name === 'string' && isPrivateIp(d.ip)).slice(0, 100) : [];
 for (const light of knownGovee) govee.set(light.id, { ...light, brand: 'Govee', reachable: false, color: true });
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
-function hueRequest(ip, path, method = 'GET', body) {
+function hueRequest(ip, path, method = 'GET', body, username) {
   return new Promise((resolve, reject) => {
-    const req = https.request({ hostname: ip, path, method, rejectUnauthorized: false, timeout: 5000, headers: { 'Content-Type': 'application/json' } }, res => {
+    const req = https.request({ hostname: ip, path, method, rejectUnauthorized: false, timeout: 5000, headers: { 'Content-Type': 'application/json', ...(username ? { 'hue-application-key':username } : {}) } }, res => {
       let data = ''; res.on('data', chunk => { data += chunk; if (data.length > 1_000_000) req.destroy(); });
-      res.on('end', () => { try { const result = JSON.parse(data); const error = Array.isArray(result) && result.find(x => x.error); if (error) reject(new Error(error.error.description)); else resolve(result); } catch (error) { reject(error); } });
+      res.on('end', () => { try { const result = JSON.parse(data); const error = Array.isArray(result) ? result.find(x => x.error)?.error : result.errors?.[0]; if (error) reject(new Error(error.description || error.message || 'Hue request failed.')); else if (res.statusCode >= 400) reject(new Error(`Hue request failed (${res.statusCode}).`)); else resolve(result); } catch (error) { reject(error); } });
     });
     req.on('timeout', () => req.destroy(new Error('Hue Bridge timed out'))); req.on('error', reject); req.end(body ? JSON.stringify(body) : undefined);
   });
@@ -109,17 +111,24 @@ async function setLight(light, rgb, brightness, reactive = false) {
   else { await sendGovee(light.ip, 'turn', { value: 1 }); await new Promise(resolve => setTimeout(resolve, 50)); await sendGovee(light.ip, 'brightness', { value: brightness }); await new Promise(resolve => setTimeout(resolve, 50)); await sendGovee(light.ip, 'colorwc', { color: { r: rgb[0], g: rgb[1], b: rgb[2] }, colorTemInKelvin: 0 }); }
 }
 let sleepGuard, availableRefreshTimer, uploadedMusic, musicDir, audioLevel = 0, lastAudioSample = 0, lastAudibleSample = 0, lastAppliedBeat = 0, appliedBeats = 0, showWarnings = [];
+let lastShowFrame = null;
+const entertainment = new HueEntertainment((credentials, path, method, body) => hueRequest(credentials.ip, path, method, body, credentials.username));
+const entertainmentConfig = () => config.hueEntertainment && config.hue?.ip ? { ...config.hueEntertainment, ip:config.hue.ip } : null;
 let showRunner;
 const detectedBeat = () => { if (showRunner?.beat()) { lastAppliedBeat = Date.now(); appliedBeats++; } };
 let beatDetector = new BeatDetector(detectedBeat);
-const audioSample = level => { audioLevel = level; lastAudioSample = Date.now(); if (level > 0.03) lastAudibleSample = lastAudioSample; beatDetector.feed(level); };
-function showStatus() { return { ...showRunner.status(), warnings:showWarnings, audio: { level:audioLevel, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
+let musicEnergy = new MusicEnergy();
+const audioSample = ({ bass, loudness }) => { audioLevel = bass; lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample); beatDetector.feed(bass, lastAudioSample); };
+function showStatus() { return { ...showRunner.status(), warnings:[...showWarnings, ...(entertainment.warning ? [entertainment.warning] : [])], hueEntertainment:entertainment.area?.name || null, audio: { level:audioLevel, energy:musicEnergy.snapshot().state, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
 const audioFailure = message => { if (showRunner) changeShow(() => showRunner.fail(message)); };
 const musicPlayer = new MusicPlayer(audioFailure, audioSample);
 const systemAudio = new SystemAudio(audioSample, audioFailure);
 async function sendShowFrame(ids, colors, brightness, reactive) {
   const all = new Map([...hueLights, ...govee]);
+  lastShowFrame = { ids, colors, brightness };
+  const streamed = entertainment.update(ids, colors, brightness);
   const results = await Promise.allSettled(ids.map(async (id, i) => {
+    if (streamed.has(id)) return;
     const light = all.get(id);
     if (!light) throw new Error(`A selected light is no longer available: ${id}`);
     return setLight(light, colors[i], brightness, reactive);
@@ -127,7 +136,12 @@ async function sendShowFrame(ids, colors, brightness, reactive) {
   const errors = results.filter(result => result.status === 'rejected').map(result => result.reason.message);
   showWarnings = errors;
 }
-showRunner = new ShowRunner(sendShowFrame, { energy: () => audioLevel, onStop: () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); showWarnings = []; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } } });
+showRunner = new ShowRunner(sendShowFrame, { energy: () => musicEnergy.snapshot(), onStop: async () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); showWarnings = []; lastShowFrame = null; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } await entertainment.stop(); } });
+function primeEntertainment(show) {
+  const previous = new Map((lastShowFrame?.ids || []).map((id, i) => [id, lastShowFrame.colors[i]]));
+  const colors = show.ids.map((id, i) => previous.get(id) || show.palette[i % show.palette.length]);
+  entertainment.update(show.ids, colors, lastShowFrame?.brightness ?? show.brightness);
+}
 let showOperation = Promise.resolve();
 function changeShow(operation) {
   const result = showOperation.then(operation);
@@ -144,10 +158,16 @@ function validateShow(data, allowEmpty = false) {
   if (typeof scene !== 'string' || scene.length > 80 || !Number.isInteger(pace) || pace < 1000 || pace > 60000 || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || typeof musicSync !== 'boolean' || !['none','file','system'].includes(musicSource) || (musicSync && musicSource === 'none') || !Number.isInteger(beatOffset) || beatOffset < -300 || beatOffset > 300) throw new Error('Invalid show settings.');
   return { ids:resolvedIds, palette, scene, pace, brightness, musicSync, musicSource, includeAll, beatOffset, musicName: musicSource === 'file' ? uploadedMusic?.name || '' : '' };
 }
-function reconcileAvailableLights(generation = showRunner.generation) {
+async function reconcileAvailableLights(generation = showRunner.generation) {
   const current = showRunner.status();
   if (!current.running || !current.includeAll || showRunner.generation !== generation) return;
-  showRunner.update({ ids:availableLightIds(new Map([...hueLights, ...govee])) });
+  const ids = availableLightIds(new Map([...hueLights, ...govee]));
+  if (JSON.stringify(ids) !== JSON.stringify(current.ids)) {
+    await entertainment.stop();
+    showRunner.update({ ids });
+    await entertainment.start(entertainmentConfig(), ids);
+    primeEntertainment(showRunner.status());
+  }
 }
 function scheduleAvailableRefresh(delay = 30000) {
   clearTimeout(availableRefreshTimer);
@@ -200,9 +220,18 @@ const server = http.createServer(async (req, res) => {
       if (!lanEnabled || cookies.lightshow_session !== sessionToken) return json(res, 401, { error: 'Connection code required', loginRequired: true });
       if (req.method !== 'GET' && origin !== localOrigin) return json(res, 403, { error: 'Origin not allowed' });
     }
-    if (url.pathname === '/api/status' && req.method === 'GET') { let hue = []; let hueError = ''; try { hue = await refreshHue(); } catch (error) { hueError = error.message; } return json(res, 200, { lights: [...hue, ...govee.values()], paired: !!config.hue, hueError, show: showStatus() }); }
+    if (url.pathname === '/api/status' && req.method === 'GET') { let hue = []; let hueError = ''; try { hue = await refreshHue(); } catch (error) { hueError = error.message; } return json(res, 200, { lights: [...hue, ...govee.values()], paired: !!config.hue, entertainmentEnabled:!!config.hueEntertainment, hueError, show: showStatus() }); }
     if (url.pathname === '/api/show/status' && req.method === 'GET') return json(res, 200, showStatus());
     if (url.pathname === '/api/hue/pair' && req.method === 'POST') { const { ip, username } = await bodyOf(req); if (!isPrivateIp(ip)) throw new Error('Enter a private IPv4 address for your Bridge.'); if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{10,128}$/.test(username)) throw new Error('Enter an existing authorized Bridge username.'); await hueRequest(ip, `/api/${username}/lights`); config.hue = { ip, username }; await writeFile(configPath, JSON.stringify(config), { mode: 0o600 }); return json(res, 200, { lights: await refreshHue() }); }
+    if (url.pathname === '/api/hue/entertainment/connect' && req.method === 'POST') {
+      if (!config.hue?.ip) throw new Error('Connect your Hue Bridge first.');
+      const result = await hueRequest(config.hue.ip, '/api', 'POST', { devicetype:'lightshow#mac', generateclientkey:true });
+      const credentials = result[0]?.success;
+      if (!credentials?.username || !/^[a-f0-9]{32}$/i.test(credentials.clientkey || '')) throw new Error('The Bridge did not provide a streaming key. Press its button and try again.');
+      config.hueEntertainment = { username:credentials.username, clientkey:credentials.clientkey };
+      await writeFile(configPath, JSON.stringify(config), { mode:0o600 });
+      return json(res, 200, { connected:true });
+    }
     if (url.pathname === '/api/govee/scan' && req.method === 'POST') { const lights = await scanGovee(); await changeShow(() => reconcileAvailableLights()); return json(res, 200, { lights }); }
     if (url.pathname === '/api/music' && req.method === 'POST') {
       if (showRunner.status().running) throw new Error('Stop the current show before changing its soundtrack.');
@@ -252,8 +281,11 @@ const server = http.createServer(async (req, res) => {
       if (settings.musicSource === 'file' && !uploadedMusic) throw new Error('Choose a soundtrack first.');
       let helpers;
       if (settings.musicSource === 'system' && settings.musicSync) helpers = await ensureMacHelpers();
-      await showRunner.start(settings); beatDetector = new BeatDetector(detectedBeat); beatDetector.setOffset(settings.beatOffset);
+      musicEnergy = new MusicEnergy(); await showRunner.start(settings); beatDetector = new BeatDetector(detectedBeat); beatDetector.setOffset(settings.beatOffset);
       try {
+        if (showRunner.inFlight) await showRunner.inFlight;
+        await entertainment.start(entertainmentConfig(), settings.ids);
+        primeEntertainment(settings);
         if (settings.musicSource === 'file') await musicPlayer.start(uploadedMusic.path, settings.musicSync);
         if (settings.musicSource === 'system' && settings.musicSync) await systemAudio.start(helpers.audio, helpers.audioArgs);
         if (!showRunner.status().running) throw new Error(showRunner.status().error || 'The show stopped while starting.');
@@ -262,7 +294,7 @@ const server = http.createServer(async (req, res) => {
       scheduleAvailableRefresh(1000);
       return showRunner.status();
     })); }
-    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(() => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const status = showRunner.update(settings); beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
+    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(async () => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const changed = JSON.stringify(current.ids) !== JSON.stringify(settings.ids); if (changed) await entertainment.stop(); const status = showRunner.update(settings); if (changed) { await entertainment.start(entertainmentConfig(), settings.ids); primeEntertainment(settings); } beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
     if (url.pathname === '/api/show/stop' && req.method === 'POST') return json(res, 200, await changeShow(() => showRunner.stop()));
     if (url.pathname === '/api/show' && req.method === 'POST') { const { ids, colors, brightness } = await bodyOf(req); if (!Array.isArray(ids) || ids.length > 100 || !Array.isArray(colors) || colors.length !== ids.length || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || colors.some(c => !Array.isArray(c) || c.length !== 3 || c.some(v => !Number.isInteger(v) || v < 0 || v > 255))) throw new Error('Invalid show request.'); const all = new Map([...hueLights, ...govee]); if (ids.some(id => !all.has(id))) throw new Error('A selected light is no longer available. Refresh your lights.'); const results = await Promise.allSettled(ids.map((id, i) => setLight(all.get(id), colors[i], brightness))); const errors = results.filter(r => r.status === 'rejected').map(r => r.reason.message); return json(res, errors.length ? 502 : 200, { sent: ids.length-errors.length, errors }); }
     if (req.method !== 'GET' || url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Not found' });

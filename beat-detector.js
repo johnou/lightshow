@@ -29,6 +29,14 @@ export class BeatDetector {
   feed(level, now = Date.now()) {
     const value = Math.max(0, Math.min(1, level));
     if (value > 0.03) this.lastSound = now;
+    else if (this.lastSound && now - this.lastSound >= 1800 && this.period) {
+      this.period = null;
+      this.nextBeat = null;
+      this.frames = [];
+      this.previousPeak = 0;
+      this.candidateLag = null;
+      this.candidateStreak = 0;
+    }
     const bucket = Math.floor(now / FRAME_MS);
     if (this.bucket === null) this.bucket = bucket;
     if (bucket > this.bucket) {

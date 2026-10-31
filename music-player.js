@@ -24,12 +24,19 @@ export class MusicPlayer {
   }
 
   analyze(path) {
-    const child = spawn('ffmpeg', ['-hide_banner','-loglevel','error','-re','-stream_loop','-1','-i',path,'-af','lowpass=f=180','-f','s16le','-ac','1','-ar','8000','pipe:1'], { stdio:['ignore','pipe','ignore'] });
+    const child = spawn('ffmpeg', ['-hide_banner','-loglevel','error','-re','-stream_loop','-1','-i',path,'-f','s16le','-ac','1','-ar','8000','pipe:1'], { stdio:['ignore','pipe','ignore'] });
     this.analyzer = child;
+    let pending = Buffer.alloc(0), bass = 0;
+    const alpha = 1 - Math.exp(-2 * Math.PI * 180 / 8000);
     child.stdout.on('data', buffer => {
-      let sum = 0, count = 0;
-      for (let i=0; i+1<buffer.length; i+=2) { const sample = buffer.readInt16LE(i)/32768; sum += sample*sample; count++; }
-      if (count) { this.level = Math.min(1, Math.sqrt(sum/count)*6); this.onLevel(this.level); }
+      pending = Buffer.concat([pending, buffer]);
+      while (pending.length >= 400) {
+        let bassSum = 0, fullSum = 0;
+        for (let i=0; i<400; i+=2) { const sample = pending.readInt16LE(i)/32768; bass += alpha * (sample - bass); bassSum += bass*bass; fullSum += sample*sample; }
+        this.level = Math.min(1, Math.sqrt(bassSum/200)*6);
+        this.onLevel({ bass:this.level, loudness:Math.min(1, Math.sqrt(fullSum/200)*4) });
+        pending = pending.subarray(400);
+      }
     });
     child.on('error', error => { if (this.active && this.analyzer === child) this.onError(`Music reaction requires ffmpeg: ${error.message}`); });
     child.on('exit', code => { if (this.active && this.analyzer === child && code !== 0) this.onError('Could not analyze the soundtrack.'); });

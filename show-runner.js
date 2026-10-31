@@ -2,7 +2,7 @@ export class ShowRunner {
   constructor(send, options = {}) {
     this.send = send;
     this.onStop = options.onStop || (() => {});
-    this.energy = options.energy || (() => 1);
+    this.energy = options.energy || (() => ({ level:1, state:'steady' }));
     this.show = null;
     this.timer = null;
     this.inFlight = null;
@@ -21,6 +21,7 @@ export class ShowRunner {
     this.show = { ...settings };
     const generation = ++this.generation;
     this.step = 0;
+    this.beatCount = 0;
     this.tick(generation);
     return this.status();
   }
@@ -33,6 +34,10 @@ export class ShowRunner {
 
   beat() {
     if (!this.show?.musicSync || this.inFlight || Date.now() - this.lastFrame < Math.max(250, this.show.ids.filter(id => id.startsWith('hue:')).length * 110)) return false;
+    const energy = this.energy();
+    this.beatCount++;
+    const interval = energy.state === 'quiet' ? 4 : energy.state === 'intense' ? 1 : 2;
+    if (this.beatCount % interval !== 0) return false;
     clearTimeout(this.timer);
     this.tick(this.generation);
     return true;
@@ -42,9 +47,12 @@ export class ShowRunner {
     if (!this.show || generation !== this.generation) return;
     const show = this.show;
     this.lastFrame = Date.now();
-    const colors = show.ids.map((_, i) => show.palette[(this.step + i) % show.palette.length]);
-    const level = show.musicSync ? Math.max(0, Math.min(1, this.energy())) : 1;
-    const brightness = Math.max(1, Math.round(show.brightness * (show.musicSync ? 0.35 + level * 0.65 : 1)));
+    const colors = show.ids.map((_, i) => {
+      const position = show.musicSync && ['haunted', 'party'].includes(show.scene) ? i % 2 : i;
+      return show.palette[(this.step + position) % show.palette.length];
+    });
+    const level = show.musicSync ? Math.max(0, Math.min(1, this.energy().level)) : 1;
+    const brightness = Math.max(1, Math.round(show.brightness * (show.musicSync ? 0.35 + Math.sqrt(level) * 0.65 : 1)));
     try {
       this.inFlight = this.send(show.ids, colors, brightness, show.musicSync);
       await this.inFlight;

@@ -35,3 +35,11 @@ test('beat offset moves the next predicted beat', () => {
   detector.setOffset(150); assert.equal(detector.nextBeat,10150);
   detector.setOffset(-50); assert.equal(detector.nextBeat,9950);
 });
+test('forgets an old tempo after sustained silence', () => {
+  const detector=new BeatDetector(() => {});
+  for (let time=100000; time<112000; time+=25) detector.feed((time-100000)%500<50 ? 0.6 : 0.01, time);
+  assert.ok(detector.period);
+  for (let time=112000; time<115000; time+=25) detector.feed(0, time);
+  assert.equal(detector.period,null);
+  assert.equal(detector.nextBeat,null);
+});
