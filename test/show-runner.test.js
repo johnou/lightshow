@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { ShowRunner, immersiveColors } from '../show-runner.js';
+import { ShowRunner } from '../show-runner.js';
 
 const settings = { ids:['a','b'], palette:[[255,0,0],[0,255,0]], pace:20, brightness:80, musicSync:false };
 test('show runs without a client, advances colors, and stops', async () => {
@@ -54,20 +54,11 @@ test('quieter passages change colors less often and intense passages follow ever
   assert.ok(calls.at(-1)[2]>quietBrightness);
   await runner.stop();
 });
-test('immersive colors react differently to frequency bands and stay within the palette bounds', () => {
-  const palette=[[255,20,0],[0,80,240],[30,255,40]];
-  const bass=immersiveColors(palette,3,1,[1,0,0]);
-  const treble=immersiveColors(palette,3,1,[0,0,1]);
-  assert.notDeepEqual(bass,treble);
-  assert.ok(bass.flat().every(value => Number.isInteger(value) && value >= 0 && value <= 255));
-});
-test('switches music styles during a show without changing classic behavior', async () => {
-  const calls=[]; const runner=new ShowRunner(async (...args) => { calls.push(args); }, { energy:() => ({ level:0.4, state:'steady', bands:[0.8,0.2,0.1] }), tempo:() => 500 });
-  await runner.start({ ...settings, musicSync:true, musicStyle:'beat' });
-  assert.equal(calls[0][4],0);
-  runner.update({musicStyle:'immersive'}); runner.lastFrame=Date.now()-1000; runner.beat(); await sleep(1);
-  assert.equal(calls[1][4],300);
-  assert.notDeepEqual(calls[1][1],calls[0][1]);
+test('LedFx mode does not let the classic beat runner overwrite generated frames', async () => {
+  const calls=[]; const runner=new ShowRunner(async (...args) => { calls.push(args); });
+  await runner.start({ ...settings, musicSync:true, musicStyle:'immersive' });
+  runner.lastFrame=Date.now()-1000; runner.beat(); await sleep(1);
+  assert.equal(calls.length,1);
   await runner.stop();
 });
 test('reactive shows do not advance on a free-running timer without a beat', async () => {

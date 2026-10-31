@@ -7,6 +7,9 @@ import AVFoundation
 final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
     private var bass: [Float] = []
     private var lowMid: [Float] = []
+    private var pcm: [Int16] = []
+    private let sendPCM: Bool
+    init(sendPCM: Bool) { self.sendPCM = sendPCM }
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, sampleBuffer.isValid else { return }
         try? sampleBuffer.withAudioBufferList { list, _ in
@@ -44,6 +47,20 @@ final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
             let mid = sqrt(midSum / Float(count * channelCount))
             let high = sqrt(highSum / Float(count * channelCount))
             print(String(format: "%.5f %.5f %.5f %.5f", min(1.0, rms * 6.0), min(1.0, loudness * 4.0), min(1.0, mid * 6.0), min(1.0, high * 8.0)))
+            if sendPCM {
+                for index in 0..<count {
+                    var sample: Float = 0
+                    for channel in 0..<channelCount { sample += channels[channel][index] }
+                    if !sample.isFinite { sample = 0 }
+                    sample = max(-1, min(1, sample / Float(channelCount)))
+                    self.pcm.append(Int16(sample * 32767).littleEndian)
+                    if self.pcm.count == 800 {
+                        let data = self.pcm.withUnsafeBytes { Data($0) }
+                        print("PCM \(data.base64EncodedString())")
+                        self.pcm.removeAll(keepingCapacity: true)
+                    }
+                }
+            }
             fflush(stdout)
         }
     }
@@ -71,7 +88,7 @@ Task {
         config.width = 2
         config.height = 2
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-        let meter = AudioMeter()
+        let meter = AudioMeter(sendPCM: CommandLine.arguments.contains("--pcm"))
         let stream = SCStream(filter: filter, configuration: config, delegate: meter)
         try stream.addStreamOutput(meter, type: .audio, sampleHandlerQueue: DispatchQueue(label: "lightshow.audio"))
         try await stream.startCapture()

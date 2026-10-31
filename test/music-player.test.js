@@ -14,8 +14,8 @@ test('a silent soundtrack plays and analyzes on macOS', async t => {
   const samples = 16000, data = Buffer.alloc(44 + samples * 2);
   data.write('RIFF',0); data.writeUInt32LE(data.length-8,4); data.write('WAVEfmt ',8); data.writeUInt32LE(16,16); data.writeUInt16LE(1,20); data.writeUInt16LE(1,22); data.writeUInt32LE(8000,24); data.writeUInt32LE(16000,28); data.writeUInt16LE(2,32); data.writeUInt16LE(16,34); data.write('data',36); data.writeUInt32LE(samples*2,40);
   const path=join(dir,'silence.wav'); await writeFile(path,data);
-  const errors=[]; const player=new MusicPlayer(message => errors.push(message)); t.after(() => player.stop());
+  const errors=[], frames=[]; const player=new MusicPlayer(message => errors.push(message), () => {}, frame => frames.push(frame)); t.after(() => player.stop());
   await player.start(path,true); await sleep(1200);
-  assert.equal(player.active,true); assert.equal(player.level,0); assert.deepEqual(errors,[]);
+  assert.equal(player.active,true); assert.equal(player.level,0); assert.deepEqual(errors,[]); assert.ok(frames.length > 0 && frames.every(frame => frame.length === 1600));
   player.stop(); assert.equal(player.active,false);
 });

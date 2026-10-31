@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 export class MusicPlayer {
-  constructor(onError, onLevel = () => {}) { this.onError = onError; this.onLevel = onLevel; this.player = null; this.analyzer = null; this.active = false; this.level = 1; }
+  constructor(onError, onLevel = () => {}, onPCM = () => {}) { this.onError = onError; this.onLevel = onLevel; this.onPCM = onPCM; this.player = null; this.analyzer = null; this.active = false; this.level = 1; }
 
   async start(path, react) {
     if (process.platform !== 'darwin') throw new Error('Soundtrack playback currently requires macOS.');
@@ -24,19 +24,20 @@ export class MusicPlayer {
   }
 
   analyze(path) {
-    const child = spawn('ffmpeg', ['-hide_banner','-loglevel','error','-re','-stream_loop','-1','-i',path,'-f','s16le','-ac','1','-ar','8000','pipe:1'], { stdio:['ignore','pipe','ignore'] });
+    const child = spawn('ffmpeg', ['-hide_banner','-loglevel','error','-re','-stream_loop','-1','-i',path,'-f','s16le','-ac','1','-ar','48000','pipe:1'], { stdio:['ignore','pipe','ignore'] });
     this.analyzer = child;
     let pending = Buffer.alloc(0), bass = 0, lowMid = 0;
-    const alpha = 1 - Math.exp(-2 * Math.PI * 180 / 8000);
-    const midAlpha = 1 - Math.exp(-2 * Math.PI * 2000 / 8000);
+    const alpha = 1 - Math.exp(-2 * Math.PI * 180 / 48000);
+    const midAlpha = 1 - Math.exp(-2 * Math.PI * 2000 / 48000);
     child.stdout.on('data', buffer => {
       pending = Buffer.concat([pending, buffer]);
-      while (pending.length >= 400) {
+      while (pending.length >= 1600) {
         let bassSum = 0, fullSum = 0, midSum = 0, highSum = 0;
-        for (let i=0; i<400; i+=2) { const sample = pending.readInt16LE(i)/32768; bass += alpha * (sample - bass); lowMid += midAlpha * (sample - lowMid); bassSum += bass*bass; fullSum += sample*sample; midSum += (lowMid-bass)**2; highSum += (sample-lowMid)**2; }
-        this.level = Math.min(1, Math.sqrt(bassSum/200)*6);
-        this.onLevel({ bass:this.level, loudness:Math.min(1, Math.sqrt(fullSum/200)*4), mid:Math.min(1, Math.sqrt(midSum/200)*6), high:Math.min(1, Math.sqrt(highSum/200)*8) });
-        pending = pending.subarray(400);
+        for (let i=0; i<1600; i+=2) { const sample = pending.readInt16LE(i)/32768; bass += alpha * (sample - bass); lowMid += midAlpha * (sample - lowMid); bassSum += bass*bass; fullSum += sample*sample; midSum += (lowMid-bass)**2; highSum += (sample-lowMid)**2; }
+        this.level = Math.min(1, Math.sqrt(bassSum/800)*6);
+        this.onLevel({ bass:this.level, loudness:Math.min(1, Math.sqrt(fullSum/800)*4), mid:Math.min(1, Math.sqrt(midSum/800)*6), high:Math.min(1, Math.sqrt(highSum/800)*8) });
+        this.onPCM(pending.subarray(0, 1600));
+        pending = pending.subarray(1600);
       }
     });
     child.on('error', error => { if (this.active && this.analyzer === child) this.onError(`Music reaction requires ffmpeg: ${error.message}`); });
