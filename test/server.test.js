@@ -14,7 +14,7 @@ before(async () => {
 });
 after(async () => { server?.kill(); await rm(dataDir, { recursive:true, force:true }); });
 test('serves the app and reports device status', async () => {
-  const page = await fetch(base); assert.equal(page.status, 200); assert.match(await page.text(), /Your show/);
+  const page = await fetch(base); assert.equal(page.status, 200); assert.match(await page.text(), /Choose a scene/);
   const status = await fetch(`${base}/api/status`); assert.equal(status.status, 200); assert.ok(Array.isArray((await status.json()).lights));
 });
 test('rejects untrusted origins and invalid device requests', async () => {

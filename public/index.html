@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#15151b">
+  <meta name="theme-color" content="#101112">
   <meta name="description" content="Your lights, your music, your show.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
@@ -12,40 +12,40 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#home"><span class="brandmark">✳</span> lightshow</a>
-    <button class="connection-pill" id="open-setup"><span class="status-dot"></span><span id="connection-label">Connect lights</span><span aria-hidden="true">⚙</span></button>
+    <a class="brand" href="#home"><span class="brandmark" aria-hidden="true">◒</span> lightshow</a>
+    <button class="connection-pill" id="open-setup"><span class="status-dot"></span><span id="connection-label">Connect lights</span><span class="settings-label">Settings</span></button>
   </header>
   <main class="shell" id="home">
-    <div class="page-heading"><div><p class="eyebrow">YOUR SPACE, IN SYNC</p><h1>Your show<span>.</span></h1></div><span class="header-icon" aria-hidden="true">✳</span></div>
+  <div class="player" id="player"><div class="player-art" id="player-art" aria-hidden="true"></div><div class="player-name"><span id="player-hint">Select lights to begin</span><h1 id="player-title">Pumpkin After Dark</h1></div><button id="play" class="play-button" aria-label="Start show">▶ <span>Start show</span></button></div>
     <div class="layout">
       <section class="card scene-panel" aria-labelledby="scenes-heading">
-        <div class="section-heading"><div><h2 id="scenes-heading">Scenes</h2><p>Pick a mood for your lights.</p></div></div>
+        <div class="section-heading"><div><h2 id="scenes-heading">Choose a scene</h2></div></div>
         <div class="scene-grid" id="scene-grid"></div>
         <div class="show-settings"><label class="setting">Pace <select id="pace"><option value="5000">Slow</option><option value="3000" selected>Easy</option><option value="1500">Lively</option></select></label><label class="setting brightness">Brightness <span class="range-wrap"><input id="brightness" type="range" min="10" max="100" value="75"><span id="brightness-value">75%</span></span></label></div>
       </section>
       <div class="side-column">
         <section class="card music-panel" aria-labelledby="music-heading">
-          <div class="section-heading"><div><h2 id="music-heading">Music</h2><p>Play on your Mac and sync the lights.</p></div><span class="section-icon" aria-hidden="true">♫</span></div>
+          <div class="section-heading"><div><h2 id="music-heading">Sound</h2></div></div>
           <label class="sr-only" for="music-source">Music source</label>
-          <select id="music-source" class="source-select"><option value="none">No music</option><option value="system">Mac audio · YouTube Music & more</option><option value="file">Audio file</option></select>
+          <select id="music-source" class="source-select"><option value="none">Ambient · no music</option><option value="system">Mac audio</option><option value="file">Play an audio file</option></select>
           <div id="file-controls" hidden><div class="music-box"><div class="music-info"><strong id="music-name">No track selected</strong><small id="music-sub">Play a file on your Mac</small></div><label class="small-button" for="music-file">Choose file</label><input id="music-file" type="file" accept="audio/*" hidden></div><button id="clear-music" class="link-button" hidden>Remove file</button></div>
           <div id="system-controls" hidden>
             <div class="media-buttons"><button class="small-button" id="open-youtube">Open YouTube Music</button><button class="small-button" data-media="previous" aria-label="Previous track">◀◀</button><button class="small-button" data-media="playpause" aria-label="Play or pause music">▶ / Ⅱ</button><button class="small-button" data-media="next" aria-label="Next track">▶▶</button></div>
-            <form id="music-link-form" class="link-form"><label class="sr-only" for="music-link">YouTube Music song or playlist link</label><input id="music-link" type="url" placeholder="Paste a song or playlist link" required><button class="small-button" type="submit">Open on Mac</button></form>
+            <details class="playlist-tools"><summary>Songs & playlists</summary><form id="music-link-form" class="link-form"><label class="sr-only" for="music-link">YouTube Music song or playlist link</label><input id="music-link" type="url" placeholder="Paste a song or playlist link" required><button class="small-button" type="submit">Open on Mac</button></form>
             <div id="save-link-row" class="save-link-row" hidden><label class="sr-only" for="music-link-name">Name for saved link</label><input id="music-link-name" maxlength="80" placeholder="Name this song or playlist"><button class="small-button" id="save-music-link" type="button">Save</button></div>
-            <div id="saved-links" class="saved-links"></div><p class="hint">Links open in YouTube Music on your Mac. Playback may need a click there.</p><p class="hint" id="music-activity" role="status"></p>
+            <div id="saved-links" class="saved-links"></div><p class="hint">Links open in YouTube Music on your Mac. Playback may need a click there.</p></details><p class="hint" id="music-activity" role="status"></p>
           </div>
-          <label class="sync-toggle"><span>React to the music</span><input type="checkbox" id="music-sync"></label><label id="music-style-wrap" class="beat-offset" hidden><span>Music style</span><select id="music-style" class="source-select"><option value="beat">Beat · classic</option><option value="immersive">LedFx · immersive</option></select></label><label id="beat-offset-wrap" class="beat-offset" hidden><span>Beat timing <small id="beat-offset-value">Automatic</small></span><input type="range" id="beat-offset" min="-300" max="300" step="25" value="0"><span class="offset-labels"><small>Earlier</small><small>Later</small></span></label>
+          <label class="sync-toggle"><span>React to the music</span><input type="checkbox" id="music-sync"></label><label id="music-style-wrap" class="beat-offset" hidden><span>Response</span><select id="music-style" class="source-select"><option value="beat">Beat</option><option value="immersive">Immersive</option></select></label><label id="beat-offset-wrap" class="beat-offset" hidden><span>Beat timing <small id="beat-offset-value">Automatic</small></span><input type="range" id="beat-offset" min="-300" max="300" step="25" value="0"><span class="offset-labels"><small>Earlier</small><small>Later</small></span></label>
         </section>
-        <section class="card lights-panel" id="lights" aria-labelledby="lights-heading">
-          <div class="section-heading"><div><h2 id="lights-heading">Lights <span id="light-count" class="count">0</span></h2><p>Select lights for this show.</p></div><button class="icon-button" id="scan" title="Find lights" aria-label="Find lights">↻</button></div>
+        <details class="card lights-panel" id="lights"><summary><span>Lights <span id="light-count" class="count">0</span></span><span class="summary-note">Manage</span></summary>
+          <div class="lights-toolbar"><span>Use in this show</span><button class="small-button" id="scan">Refresh</button></div>
           <label class="all-lights"><span>Include all available lights</span><input type="checkbox" id="all-lights" checked></label><div id="lights-list" class="lights-list"></div>
-        </section>
+        </details>
       </div>
     </div>
   </main>
-  <div class="player" id="player"><div class="player-art" id="player-art">✳</div><div class="player-name"><span id="player-hint">Select lights to begin</span><strong id="player-title">Pumpkin After Dark</strong></div><button id="play" class="play-button" aria-label="Start show">▶ <span>Start show</span></button></div>
-  <dialog id="setup"><div class="dialog-top"><div><p class="eyebrow">CONNECTIONS</p><h2>Connect lights</h2></div><button class="icon-button" id="close-setup" aria-label="Close">×</button></div><div class="setup-card"><div class="setup-icon">✳</div><div class="setup-body"><strong>Philips Hue</strong><p>Enter the Bridge IP and an authorized username.</p><div class="setup-form"><input id="hue-ip" placeholder="Bridge IP" aria-label="Hue Bridge IP"><input id="hue-user" placeholder="Bridge username" aria-label="Hue Bridge username"><button class="small-button" id="pair-hue">Connect</button></div><p id="entertainment-status">For faster music sync, press the Bridge button, then enable Hue Entertainment.</p><button class="small-button" id="enable-entertainment">Enable Hue Entertainment</button></div></div><div class="setup-card"><div class="setup-icon">◉</div><div class="setup-body"><strong>Govee</strong><p>Enable LAN Control in Govee Home, then scan.</p><button class="small-button" id="scan-govee">Find Govee lights</button><label class="all-lights"><span>Fast Govee streaming</span><input type="checkbox" id="govee-streaming"></label><p>Off: original LAN controller and bass-driven scene changes.</p></div></div><p class="hint" id="setup-message"></p></dialog>
+
+  <dialog id="setup"><div class="dialog-top"><div><p class="eyebrow">CONNECTIONS</p><h2>Settings</h2></div><button class="icon-button" id="close-setup" aria-label="Close">×</button></div><div class="setup-card"><div class="setup-icon">✳</div><div class="setup-body"><strong>Philips Hue</strong><p>Enter the Bridge IP and an authorized username.</p><div class="setup-form"><input id="hue-ip" placeholder="Bridge IP" aria-label="Hue Bridge IP"><input id="hue-user" placeholder="Bridge username" aria-label="Hue Bridge username"><button class="small-button" id="pair-hue">Connect</button></div><p id="entertainment-status">For faster music sync, press the Bridge button, then enable Hue Entertainment.</p><button class="small-button" id="enable-entertainment">Enable Hue Entertainment</button></div></div><div class="setup-card"><div class="setup-icon">◉</div><div class="setup-body"><strong>Govee</strong><p>Enable LAN Control in Govee Home, then scan.</p><button class="small-button" id="scan-govee">Find Govee lights</button><label class="all-lights"><span>Fast Govee streaming</span><input type="checkbox" id="govee-streaming"></label><p>Off: original LAN controller and bass-driven scene changes.</p></div></div><p class="hint" id="setup-message"></p></dialog>
   <dialog id="login"><div class="dialog-top"><div><p class="eyebrow">CONNECT</p><h2>Connect this phone</h2></div></div><p>Enter the connection code shown in the Lightshow Mac app.</p><form id="login-form" class="setup-form"><input id="connection-code" type="text" autocomplete="off" autocapitalize="off" required placeholder="Connection code" aria-label="Connection code"><button class="small-button" type="submit">Connect</button></form><p id="login-message" class="hint" role="status"></p></dialog>
   <div id="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.js"></script>
