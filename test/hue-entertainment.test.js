@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { entertainmentAreas, selectEntertainmentArea, hueStreamFrame, HueEntertainment } from '../hue-entertainment.js';
+import { entertainmentAreas, selectEntertainmentArea, entertainmentSelection, hueStreamFrame, HueEntertainment } from '../hue-entertainment.js';
 
 const areaId = '12345678-1234-1234-1234-123456789abc';
 const resources = [
@@ -23,6 +23,11 @@ test('maps channels to Hue lights and never streams an area containing unselecte
   assert.equal(selectEntertainmentArea(areas,['hue:7','hue:8']).name,'Living room');
   const unknown=structuredClone(resources); unknown.at(-1).channels[0].members[0].service.rid='unknown';
   assert.equal(selectEntertainmentArea(entertainmentAreas(unknown),['hue:7','hue:8']),null);
+});
+test('all-lights mode includes known offline Hue members; manual selection remains exact', () => {
+  assert.deepEqual(entertainmentSelection(['hue:7','govee:1'],['hue:7','hue:8'],true),['hue:7','govee:1','hue:8']);
+  assert.deepEqual(entertainmentSelection(['hue:7'],['hue:7','hue:8'],false),['hue:7']);
+  assert.deepEqual(entertainmentSelection(['govee:1'],['hue:7','hue:8'],true),['govee:1']);
 });
 
 test('encodes HueStream v2 RGB channels and brightness', () => {

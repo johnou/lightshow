@@ -8,7 +8,7 @@ import { MusicPlayer } from './music-player.js';
 import { SystemAudio } from './system-audio.js';
 import { BeatDetector } from './beat-detector.js';
 import { MusicEnergy } from './music-energy.js';
-import { HueEntertainment } from './hue-entertainment.js';
+import { HueEntertainment, entertainmentAreas, entertainmentSelection } from './hue-entertainment.js';
 import { ensureMacHelpers, mediaKey } from './mac-helpers.js';
 import { normalizeMusicURL } from './youtube-links.js';
 import { availableLightIds, resolveLightIds } from './light-selection.js';
@@ -126,7 +126,7 @@ const systemAudio = new SystemAudio(audioSample, audioFailure);
 async function sendShowFrame(ids, colors, brightness, reactive) {
   const all = new Map([...hueLights, ...govee]);
   lastShowFrame = { ids, colors, brightness };
-  const streamed = entertainment.update(ids, colors, brightness);
+  const streamed = updateEntertainment(ids, colors, brightness);
   const results = await Promise.allSettled(ids.map(async (id, i) => {
     if (streamed.has(id)) return;
     const light = all.get(id);
@@ -137,10 +137,16 @@ async function sendShowFrame(ids, colors, brightness, reactive) {
   showWarnings = errors;
 }
 showRunner = new ShowRunner(sendShowFrame, { energy: () => musicEnergy.snapshot(), onStop: async () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); showWarnings = []; lastShowFrame = null; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } await entertainment.stop(); } });
+function updateEntertainment(ids, colors, brightness) {
+  const show = showRunner.status();
+  const expanded = entertainmentSelection(ids, hueLights.keys(), show.includeAll);
+  const expandedColors = expanded.map((id, i) => { const index = ids.indexOf(id); return index < 0 ? show.palette[(showRunner.step + i) % show.palette.length] : colors[index]; });
+  return entertainment.update(expanded, expandedColors, brightness);
+}
 function primeEntertainment(show) {
   const previous = new Map((lastShowFrame?.ids || []).map((id, i) => [id, lastShowFrame.colors[i]]));
   const colors = show.ids.map((id, i) => previous.get(id) || show.palette[i % show.palette.length]);
-  entertainment.update(show.ids, colors, lastShowFrame?.brightness ?? show.brightness);
+  updateEntertainment(show.ids, colors, lastShowFrame?.brightness ?? show.brightness);
 }
 let showOperation = Promise.resolve();
 function changeShow(operation) {
@@ -165,7 +171,7 @@ async function reconcileAvailableLights(generation = showRunner.generation) {
   if (JSON.stringify(ids) !== JSON.stringify(current.ids)) {
     await entertainment.stop();
     showRunner.update({ ids });
-    await entertainment.start(entertainmentConfig(), ids);
+    await entertainment.start(entertainmentConfig(), entertainmentSelection(ids, hueLights.keys(), current.includeAll));
     primeEntertainment(showRunner.status());
   }
 }
@@ -232,6 +238,12 @@ const server = http.createServer(async (req, res) => {
       await writeFile(configPath, JSON.stringify(config), { mode:0o600 });
       return json(res, 200, { connected:true });
     }
+    if (url.pathname === '/api/hue/entertainment/areas' && req.method === 'GET') {
+      const credentials = entertainmentConfig();
+      if (!credentials) throw new Error('Enable Hue Entertainment first.');
+      const result = await hueRequest(credentials.ip, '/clip/v2/resource', 'GET', undefined, credentials.username);
+      return json(res, 200, { areas:entertainmentAreas(result.data || []), resourceTypes:[...new Set((result.data || []).map(resource => resource.type))] });
+    }
     if (url.pathname === '/api/govee/scan' && req.method === 'POST') { const lights = await scanGovee(); await changeShow(() => reconcileAvailableLights()); return json(res, 200, { lights }); }
     if (url.pathname === '/api/music' && req.method === 'POST') {
       if (showRunner.status().running) throw new Error('Stop the current show before changing its soundtrack.');
@@ -284,7 +296,7 @@ const server = http.createServer(async (req, res) => {
       musicEnergy = new MusicEnergy(); await showRunner.start(settings); beatDetector = new BeatDetector(detectedBeat); beatDetector.setOffset(settings.beatOffset);
       try {
         if (showRunner.inFlight) await showRunner.inFlight;
-        await entertainment.start(entertainmentConfig(), settings.ids);
+        await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll));
         primeEntertainment(settings);
         if (settings.musicSource === 'file') await musicPlayer.start(uploadedMusic.path, settings.musicSync);
         if (settings.musicSource === 'system' && settings.musicSync) await systemAudio.start(helpers.audio, helpers.audioArgs);
@@ -294,7 +306,7 @@ const server = http.createServer(async (req, res) => {
       scheduleAvailableRefresh(1000);
       return showRunner.status();
     })); }
-    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(async () => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const changed = JSON.stringify(current.ids) !== JSON.stringify(settings.ids); if (changed) await entertainment.stop(); const status = showRunner.update(settings); if (changed) { await entertainment.start(entertainmentConfig(), settings.ids); primeEntertainment(settings); } beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
+    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(async () => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const changed = JSON.stringify(current.ids) !== JSON.stringify(settings.ids) || current.includeAll !== settings.includeAll; if (changed) await entertainment.stop(); const status = showRunner.update(settings); if (changed) { await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll)); primeEntertainment(settings); } beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
     if (url.pathname === '/api/show/stop' && req.method === 'POST') return json(res, 200, await changeShow(() => showRunner.stop()));
     if (url.pathname === '/api/show' && req.method === 'POST') { const { ids, colors, brightness } = await bodyOf(req); if (!Array.isArray(ids) || ids.length > 100 || !Array.isArray(colors) || colors.length !== ids.length || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || colors.some(c => !Array.isArray(c) || c.length !== 3 || c.some(v => !Number.isInteger(v) || v < 0 || v > 255))) throw new Error('Invalid show request.'); const all = new Map([...hueLights, ...govee]); if (ids.some(id => !all.has(id))) throw new Error('A selected light is no longer available. Refresh your lights.'); const results = await Promise.allSettled(ids.map((id, i) => setLight(all.get(id), colors[i], brightness))); const errors = results.filter(r => r.status === 'rejected').map(r => r.reason.message); return json(res, errors.length ? 502 : 200, { sent: ids.length-errors.length, errors }); }
     if (req.method !== 'GET' || url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Not found' });

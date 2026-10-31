@@ -19,6 +19,11 @@ export function selectEntertainmentArea(areas, ids) {
     .sort((a,b) => b.channels.length - a.channels.length)[0] || null;
 }
 
+export function entertainmentSelection(ids, knownHueIds, includeAll) {
+  if (!includeAll || !ids.some(id => id.startsWith('hue:'))) return ids;
+  return [...new Set([...ids, ...knownHueIds])];
+}
+
 export function hueStreamFrame(area, colors, brightness, sequence = 0) {
   const header = Buffer.concat([Buffer.from('HueStream'), Buffer.from([2,0,sequence & 255,0,0,0,0]), Buffer.from(area.id, 'ascii')]);
   const channels = area.channels.map(channel => {
