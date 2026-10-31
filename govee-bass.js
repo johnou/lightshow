@@ -52,3 +52,9 @@ export class GoveeBass {
     this.errors = [];
   }
 }
+
+export async function configureGoveeOutputs(bass, stream, show, lights) {
+  if (show.goveeStreaming) await bass.reset();
+  await stream.reconcile(show.goveeStreaming ? lights.map(({id,ip}) => ({id,ip})) : [], show.brightness);
+  await bass.configure(show, lights);
+}

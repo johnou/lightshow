@@ -10,7 +10,7 @@ import { BeatDetector } from './beat-detector.js';
 import { MusicEnergy } from './music-energy.js';
 import { LedFxEngine } from './ledfx-engine.js';
 import { GoveeStream } from './govee-stream.js';
-import { GoveeBass } from './govee-bass.js';
+import { GoveeBass, configureGoveeOutputs } from './govee-bass.js';
 import { HueEntertainment, entertainmentAreas, entertainmentSelection } from './hue-entertainment.js';
 import { ensureMacHelpers, mediaKey } from './mac-helpers.js';
 import { normalizeMusicURL } from './youtube-links.js';
@@ -223,8 +223,7 @@ async function reconcileAvailableLights(generation = showRunner.generation) {
     showRunner.update({ ids });
   }
   const next = showRunner.status();
-  await goveeBass.configure(next, next.ids.map(id => govee.get(id)).filter(Boolean));
-  await goveeStream.reconcile(goveeSelection(next), next.brightness);
+  await configureGoveeOutputs(goveeBass, goveeStream, next, next.ids.map(id => govee.get(id)).filter(Boolean));
   if (changed) {
     await entertainment.start(entertainmentConfig(), entertainmentSelection(ids, hueLights.keys(), current.includeAll));
     primeEntertainment(next);
@@ -374,8 +373,7 @@ const server = http.createServer(async (req, res) => {
       if (musicChanged) { clearInterval(ledfxTimer); ledfxTimer = null; ledfxFrame = null; }
       if (hueChanged) await entertainment.stop();
       const status = showRunner.update(settings);
-      await goveeBass.configure(settings, settings.ids.map(id => govee.get(id)).filter(Boolean));
-      await goveeStream.reconcile(goveeSelection(settings), settings.brightness);
+      await configureGoveeOutputs(goveeBass, goveeStream, settings, settings.ids.map(id => govee.get(id)).filter(Boolean));
       if (hueChanged) await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll));
       if (hueChanged || current.goveeStreaming !== settings.goveeStreaming) primeEntertainment(settings);
       try { if (musicChanged) await configureLedFx(settings); } catch (error) { await showRunner.fail(`LedFx: ${error.message}`); throw error; }

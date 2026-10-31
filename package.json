@@ -10,7 +10,8 @@
     "setup:ledfx": "sh scripts/setup-ledfx.sh",
     "build:mac": "sh scripts/build-macos-app.sh",
     "test": "node --test",
-    "build": "node scripts/build.js"
+    "build": "node scripts/build.js",
+    "verify:ledfx": "node scripts/verify-ledfx.mjs"
   },
   "engines": {
     "node": ">=22"

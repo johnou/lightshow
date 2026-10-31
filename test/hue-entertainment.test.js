@@ -80,3 +80,29 @@ test('releases the area and falls back when the DTLS handshake fails', async () 
   assert.match(stream.warning,/handshake failed/); assert.deepEqual(actions,['start','stop']);
   assert.equal(stream.area,null);
 });
+
+test('keepalive frames advance sequence and report asynchronous send failures', async () => {
+  const packets=[], actions=[];
+  const request=async (_config,_path,method,body) => { if (!method) return {data:resources}; actions.push(body.action); return {data:[]}; };
+  const socket=new EventEmitter();
+  let sendError=null;
+  socket.send=(frame,callback) => { packets.push(Buffer.from(frame)); callback?.(sendError); };
+  socket.close=() => socket.emit('close');
+  const stream=new HueEntertainment(request, () => { setImmediate(() => socket.emit('connected')); return socket; });
+  try {
+    await stream.start(credentials,['hue:7','hue:8']);
+    stream.update(['hue:7','hue:8'],[[255,0,0],[0,255,0]],50);
+    await sleep(95);
+    assert.ok(packets.length >= 3);
+    for(let i=1;i<packets.length;i++) {
+      assert.equal(packets[i][11],(packets[i-1][11]+1)&255);
+      assert.deepEqual(packets[i].subarray(52),packets[0].subarray(52));
+    }
+    sendError=new Error('UDP send failed');
+    await sleep(60);
+    assert.match(stream.warning,/UDP send failed/);
+    assert.equal(stream.area,null);
+    assert.equal(stream.timer,null);
+    assert.deepEqual(actions,['start','stop']);
+  } finally { await stream.stop(); }
+});

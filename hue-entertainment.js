@@ -88,14 +88,23 @@ export class HueEntertainment {
     const target = new Map([...byId].map(([id, color]) => [id, color.map(value => value * brightness / 100)]));
     const current = this.motion ? interpolateColors(this.motion.from, this.motion.to, this.motion.duration ? (now - this.motion.started) / this.motion.duration : 1) : target;
     this.motion = { from:current, to:target, started:now, duration:transitionMs };
-    this.frame = transitionMs ? hueStreamFrame(this.area, current, 100, this.sequence++) : hueStreamFrame(this.area, byId, brightness, this.sequence++);
-    this.socket.send(this.frame, error => { if (error) { this.warning = `Hue Entertainment: ${error.message}`; this.stop().catch(() => {}); } });
-    if (!this.timer) this.timer = setInterval(() => {
-      if (!this.frame || !this.socket) return;
-      if (this.motion?.duration) this.frame = hueStreamFrame(this.area, interpolateColors(this.motion.from, this.motion.to, (Date.now() - this.motion.started) / this.motion.duration), 100, this.sequence++);
-      this.socket.send(this.frame, () => {});
-    }, 40);
+    this.sendFrame();
+    if (this.connected && !this.timer) this.timer = setInterval(() => this.sendFrame(), 40);
     return streamed;
+  }
+
+  sendFrame() {
+    const socket = this.socket;
+    if (!this.connected || !socket || !this.motion) return;
+    const {from, to, started, duration} = this.motion;
+    const colors = interpolateColors(from, to, duration ? (Date.now() - started) / duration : 1);
+    this.frame = hueStreamFrame(this.area, colors, 100, this.sequence++);
+    const failed = error => {
+      if (!error || this.socket !== socket) return;
+      this.warning = `Hue Entertainment: ${error.message}`;
+      this.stop().catch(() => {});
+    };
+    try { socket.send(this.frame, failed); } catch (error) { failed(error); }
   }
 
   async stop() {

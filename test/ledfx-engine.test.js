@@ -52,3 +52,12 @@ test('rejects invalid frames and cleans up a failed startup', async () => {
   await assert.rejects(engine.start({ids:['one'],palette:[[255,0,0]]}), /ENOENT/);
   assert.equal(engine.configDir,null); assert.equal(engine.child,null);
 });
+
+test('maps a high-resolution energy bar onto a small bulb group without losing short bands', () => {
+  const pixels=Array.from({length:64}, (_,i) => i<4 ? [0,100,200] : [0,0,0]);
+  const bulbs=colorsForBulbs(pixels,2);
+  assert.equal(bulbs.length,2);
+  assert.ok(bulbs.every(rgb => rgb[1]>0 && rgb[2]>0));
+  assert.ok(bulbs.every(rgb => rgb[0]===0));
+  assert.deepEqual(colorsForBulbs(Array.from({length:64},()=>[0,0,0]),2),[[0,0,0],[0,0,0]]);
+});

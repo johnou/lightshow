@@ -26,11 +26,16 @@ export function parsePixels(message, count, virtual = VIRTUAL) {
   return Array.from({length:count}, (_, i) => [pixels[i*3], pixels[i*3+1], pixels[i*3+2]]);
 }
 
-export function colorsForBulbs(pixels) {
+export function colorsForBulbs(pixels, count = pixels.length) {
   const lead = pixels[0];
   if (!lead) return [];
   // Energy is a level bar: share some of its leading color with every bulb.
-  return pixels.map(rgb => rgb.map((channel, i) => Math.round(channel * 0.6 + lead[i] * 0.4)));
+  return Array.from({length:count}, (_, bulb) => {
+    const start = Math.floor(bulb * pixels.length / count);
+    const end = Math.floor((bulb + 1) * pixels.length / count);
+    const segment = pixels.slice(start, end);
+    return lead.map((channel, i) => Math.round(segment.reduce((sum, rgb) => sum + rgb[i], 0) / segment.length * 0.6 + channel * 0.4));
+  });
 }
 
 async function freePort() {
@@ -62,7 +67,7 @@ export class LedFxEngine {
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100 || ids.some(id => typeof id !== 'string' || !id) || new Set(ids).size !== ids.length) throw new Error('Select between 1 and 100 unique lights.');
     const config=effectConfig(palette);
     await this.stop();
-    this.stopping=false; this.failed=false; this.ids=[...ids]; this.queue=[]; this.counters={accepted:0,dropped:0,sent:0,framesReceived:0};
+    this.stopping=false; this.failed=false; this.ids=[...ids]; this.pixelCount=Math.max(64, ids.length); this.queue=[]; this.counters={accepted:0,dropped:0,sent:0,framesReceived:0};
     try {
       this.configDir=await mkdtemp(join(tmpdir(),'lightshow-ledfx-'));
       this.base=`http://127.0.0.1:${await freePort()}`;
@@ -85,10 +90,10 @@ export class LedFxEngine {
       this.ws=ws;
       ws.addEventListener('message', event => {
         let message; try { message=JSON.parse(String(event.data)); } catch { return; }
-        const colors=parsePixels(message,this.ids.length);
+        const colors=parsePixels(message,this.pixelCount);
         if (!colors || !this.ready) return;
         this.counters.framesReceived++;
-        try { this.onFrame(colorsForBulbs(colors)); } catch (error) { this.fail(error); }
+        try { this.onFrame(colorsForBulbs(colors,this.ids.length)); } catch (error) { this.fail(error); }
       });
       ws.addEventListener('close', () => { if (this.ready && !this.stopping) this.fail(new Error('LedFx connection closed.')); });
       ws.addEventListener('error', () => { if (this.ready && !this.stopping) this.fail(new Error('LedFx connection failed.')); });
@@ -108,8 +113,8 @@ export class LedFxEngine {
       }
       if (deviceIndex === undefined) throw new Error('LedFx did not register the Mac audio input.');
       await this.request('/api/audio/devices','PUT',{audio_device:deviceIndex});
-      if (ids.length > 81) await this.request('/api/config','PUT',{visualisation_maxlen:ids.length});
-      await this.request('/api/devices','POST',{type:'dummy',config:{name:'Lightshow Output',pixel_count:ids.length}});
+      await this.request('/api/config','PUT',{visualisation_maxlen:this.pixelCount,visualisation_fps:60});
+      await this.request('/api/devices','POST',{type:'dummy',config:{name:'Lightshow Output',pixel_count:this.pixelCount}});
       ws.send(JSON.stringify({id:2,type:'subscribe_event',event_type:'visualisation_update',event_filter:{vis_id:VIRTUAL}}));
       await this.request(`/api/virtuals/${VIRTUAL}/effects`,'POST',{type:'energy',config});
       if (this.exit) throw this.exit;
