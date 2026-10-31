@@ -118,15 +118,15 @@ let showRunner;
 const detectedBeat = () => { if (showRunner?.beat()) { lastAppliedBeat = Date.now(); appliedBeats++; } };
 let beatDetector = new BeatDetector(detectedBeat);
 let musicEnergy = new MusicEnergy();
-const audioSample = ({ bass, loudness }) => { audioLevel = bass; lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample); beatDetector.feed(bass, lastAudioSample); };
+const audioSample = ({ bass, loudness, mid, high }) => { audioLevel = bass; lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample, { bass, mid, high }); const onset = showRunner?.show?.musicStyle === 'immersive' ? Math.max(bass, mid * 0.55, high * 0.45) : bass; beatDetector.feed(onset, lastAudioSample); };
 function showStatus() { return { ...showRunner.status(), warnings:[...showWarnings, ...(entertainment.warning ? [entertainment.warning] : [])], hueEntertainment:entertainment.area?.name || null, audio: { level:audioLevel, energy:musicEnergy.snapshot().state, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
 const audioFailure = message => { if (showRunner) changeShow(() => showRunner.fail(message)); };
 const musicPlayer = new MusicPlayer(audioFailure, audioSample);
 const systemAudio = new SystemAudio(audioSample, audioFailure);
-async function sendShowFrame(ids, colors, brightness, reactive) {
+async function sendShowFrame(ids, colors, brightness, reactive, transitionMs = 0) {
   const all = new Map([...hueLights, ...govee]);
   lastShowFrame = { ids, colors, brightness };
-  const streamed = updateEntertainment(ids, colors, brightness);
+  const streamed = updateEntertainment(ids, colors, brightness, transitionMs);
   const results = await Promise.allSettled(ids.map(async (id, i) => {
     if (streamed.has(id)) return;
     const light = all.get(id);
@@ -136,12 +136,12 @@ async function sendShowFrame(ids, colors, brightness, reactive) {
   const errors = results.filter(result => result.status === 'rejected').map(result => result.reason.message);
   showWarnings = errors;
 }
-showRunner = new ShowRunner(sendShowFrame, { energy: () => musicEnergy.snapshot(), onStop: async () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); showWarnings = []; lastShowFrame = null; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } await entertainment.stop(); } });
-function updateEntertainment(ids, colors, brightness) {
+showRunner = new ShowRunner(sendShowFrame, { energy: () => musicEnergy.snapshot(), tempo: () => beatDetector.period, onStop: async () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); showWarnings = []; lastShowFrame = null; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } await entertainment.stop(); } });
+function updateEntertainment(ids, colors, brightness, transitionMs = 0) {
   const show = showRunner.status();
   const expanded = entertainmentSelection(ids, hueLights.keys(), show.includeAll);
   const expandedColors = expanded.map((id, i) => { const index = ids.indexOf(id); return index < 0 ? show.palette[(showRunner.step + i) % show.palette.length] : colors[index]; });
-  return entertainment.update(expanded, expandedColors, brightness);
+  return entertainment.update(expanded, expandedColors, brightness, transitionMs);
 }
 function primeEntertainment(show) {
   const previous = new Map((lastShowFrame?.ids || []).map((id, i) => [id, lastShowFrame.colors[i]]));
@@ -156,13 +156,14 @@ function changeShow(operation) {
 }
 function validateShow(data, allowEmpty = false) {
   const { ids, palette, scene, pace, brightness, musicSync, musicSource } = data;
+  const musicStyle = data.musicStyle ?? 'beat';
   const includeAll = data.includeAll === true;
   const beatOffset = data.beatOffset ?? 0;
   const all = new Map([...hueLights, ...govee]);
   const resolvedIds = resolveLightIds(all, ids, includeAll, allowEmpty);
   if (!Array.isArray(palette) || !palette.length || palette.length > 32 || palette.some(color => !Array.isArray(color) || color.length !== 3 || color.some(value => !Number.isInteger(value) || value < 0 || value > 255))) throw new Error('Invalid scene colors.');
-  if (typeof scene !== 'string' || scene.length > 80 || !Number.isInteger(pace) || pace < 1000 || pace > 60000 || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || typeof musicSync !== 'boolean' || !['none','file','system'].includes(musicSource) || (musicSync && musicSource === 'none') || !Number.isInteger(beatOffset) || beatOffset < -300 || beatOffset > 300) throw new Error('Invalid show settings.');
-  return { ids:resolvedIds, palette, scene, pace, brightness, musicSync, musicSource, includeAll, beatOffset, musicName: musicSource === 'file' ? uploadedMusic?.name || '' : '' };
+  if (typeof scene !== 'string' || scene.length > 80 || !Number.isInteger(pace) || pace < 1000 || pace > 60000 || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || typeof musicSync !== 'boolean' || !['none','file','system'].includes(musicSource) || !['beat','immersive'].includes(musicStyle) || (musicSync && musicSource === 'none') || !Number.isInteger(beatOffset) || beatOffset < -300 || beatOffset > 300) throw new Error('Invalid show settings.');
+  return { ids:resolvedIds, palette, scene, pace, brightness, musicSync, musicStyle, musicSource, includeAll, beatOffset, musicName: musicSource === 'file' ? uploadedMusic?.name || '' : '' };
 }
 async function reconcileAvailableLights(generation = showRunner.generation) {
   const current = showRunner.status();
@@ -306,7 +307,7 @@ const server = http.createServer(async (req, res) => {
       scheduleAvailableRefresh(1000);
       return showRunner.status();
     })); }
-    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(async () => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const changed = JSON.stringify(current.ids) !== JSON.stringify(settings.ids) || current.includeAll !== settings.includeAll; if (changed) await entertainment.stop(); const status = showRunner.update(settings); if (changed) { await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll)); primeEntertainment(settings); } beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
+    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(async () => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const changed = JSON.stringify(current.ids) !== JSON.stringify(settings.ids) || current.includeAll !== settings.includeAll; if (changed) await entertainment.stop(); const status = showRunner.update(settings); if (changed) { await entertainment.start(entertainmentConfig(), entertainmentSelection(settings.ids, hueLights.keys(), settings.includeAll)); primeEntertainment(settings); } if (current.musicStyle !== settings.musicStyle) beatDetector = new BeatDetector(detectedBeat); beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
     if (url.pathname === '/api/show/stop' && req.method === 'POST') return json(res, 200, await changeShow(() => showRunner.stop()));
     if (url.pathname === '/api/show' && req.method === 'POST') { const { ids, colors, brightness } = await bodyOf(req); if (!Array.isArray(ids) || ids.length > 100 || !Array.isArray(colors) || colors.length !== ids.length || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || colors.some(c => !Array.isArray(c) || c.length !== 3 || c.some(v => !Number.isInteger(v) || v < 0 || v > 255))) throw new Error('Invalid show request.'); const all = new Map([...hueLights, ...govee]); if (ids.some(id => !all.has(id))) throw new Error('A selected light is no longer available. Refresh your lights.'); const results = await Promise.allSettled(ids.map((id, i) => setLight(all.get(id), colors[i], brightness))); const errors = results.filter(r => r.status === 'rejected').map(r => r.reason.message); return json(res, errors.length ? 502 : 200, { sent: ids.length-errors.length, errors }); }
     if (req.method !== 'GET' || url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Not found' });

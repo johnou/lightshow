@@ -35,6 +35,11 @@ export function hueStreamFrame(area, colors, brightness, sequence = 0) {
   return Buffer.concat([header, ...channels]);
 }
 
+export function interpolateColors(from, to, amount) {
+  const t = Math.max(0, Math.min(1, amount));
+  return new Map([...to].map(([id, color]) => [id, color.map((value, i) => (from.get(id) || color)[i] * (1 - t) + value * t)]));
+}
+
 export class HueEntertainment {
   constructor(request, createSocket = options => dtls.createSocket(options)) {
     this.request = request;
@@ -43,6 +48,7 @@ export class HueEntertainment {
     this.socket = null;
     this.timer = null;
     this.frame = null;
+    this.motion = null;
     this.sequence = 0;
     this.warning = '';
     this.connected = false;
@@ -73,19 +79,27 @@ export class HueEntertainment {
     }
   }
 
-  update(ids, colors, brightness) {
+  update(ids, colors, brightness, transitionMs = 0) {
     if (!this.area || !this.socket) return new Set();
     const streamed = new Set(this.area.channels.flatMap(channel => channel.lights));
     if (!this.connected) return streamed;
     const byId = new Map(ids.map((id, i) => [id, colors[i]]));
-    this.frame = hueStreamFrame(this.area, byId, brightness, this.sequence++);
+    const now = Date.now();
+    const target = new Map([...byId].map(([id, color]) => [id, color.map(value => value * brightness / 100)]));
+    const current = this.motion ? interpolateColors(this.motion.from, this.motion.to, this.motion.duration ? (now - this.motion.started) / this.motion.duration : 1) : target;
+    this.motion = { from:current, to:target, started:now, duration:transitionMs };
+    this.frame = transitionMs ? hueStreamFrame(this.area, current, 100, this.sequence++) : hueStreamFrame(this.area, byId, brightness, this.sequence++);
     this.socket.send(this.frame, error => { if (error) { this.warning = `Hue Entertainment: ${error.message}`; this.stop().catch(() => {}); } });
-    if (!this.timer) this.timer = setInterval(() => { if (this.frame && this.socket) this.socket.send(this.frame, () => {}); }, 40);
+    if (!this.timer) this.timer = setInterval(() => {
+      if (!this.frame || !this.socket) return;
+      if (this.motion?.duration) this.frame = hueStreamFrame(this.area, interpolateColors(this.motion.from, this.motion.to, (Date.now() - this.motion.started) / this.motion.duration), 100, this.sequence++);
+      this.socket.send(this.frame, () => {});
+    }, 40);
     return streamed;
   }
 
   async stop() {
-    clearInterval(this.timer); this.timer = null; this.frame = null;
+    clearInterval(this.timer); this.timer = null; this.frame = null; this.motion = null;
     const socket = this.socket, area = this.area, config = this.config, failed = this.socketFailed;
     this.socket = null; this.area = null; this.config = null; this.connected = false;
     if (socket && !failed) { try { socket.close(); } catch {} }

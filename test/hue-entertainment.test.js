@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { entertainmentAreas, selectEntertainmentArea, entertainmentSelection, hueStreamFrame, HueEntertainment } from '../hue-entertainment.js';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { entertainmentAreas, selectEntertainmentArea, entertainmentSelection, hueStreamFrame, interpolateColors, HueEntertainment } from '../hue-entertainment.js';
 
 const areaId = '12345678-1234-1234-1234-123456789abc';
 const resources = [
@@ -39,6 +40,11 @@ test('encodes HueStream v2 RGB channels and brightness', () => {
   assert.equal(frame[52],0); assert.equal(frame.readUInt16BE(53),32768); assert.equal(frame.readUInt16BE(57),8224);
   assert.equal(frame[59],1); assert.equal(frame.readUInt16BE(62),32768);
 });
+test('interpolates a transition without overshooting its target', () => {
+  const from=new Map([['hue:7',[0,100,200]]]), to=new Map([['hue:7',[200,0,100]]]);
+  assert.deepEqual(interpolateColors(from,to,0.5).get('hue:7'),[100,50,150]);
+  assert.deepEqual(interpolateColors(from,to,2).get('hue:7'),[200,0,100]);
+});
 
 test('starts, streams to the selected lights, and releases the area', async () => {
   const actions=[], packets=[]; let options;
@@ -50,6 +56,20 @@ test('starts, streams to the selected lights, and releases the area', async () =
   assert.deepEqual([...stream.update(['hue:7','hue:8','govee:one'],[[255,0,0],[0,255,0],[0,0,255]],75)],['hue:7','hue:8']);
   assert.equal(packets.length,1); assert.deepEqual(actions,['start']);
   await stream.stop(); assert.deepEqual(actions,['start','stop']); assert.equal(stream.area,null);
+});
+test('streams intermediate colors during an immersive transition and stops the timer', async () => {
+  const packets=[]; const request=async (_config,_path,method) => method ? {data:[]} : {data:resources};
+  const socket=new EventEmitter(); socket.send=(frame,cb) => { packets.push(Buffer.from(frame)); cb?.(); }; socket.close=() => socket.emit('close');
+  const stream=new HueEntertainment(request, () => { setImmediate(() => socket.emit('connected')); return socket; });
+  await stream.start(credentials,['hue:7','hue:8']);
+  stream.update(['hue:7','hue:8'],[[0,0,0],[0,0,0]],100);
+  stream.update(['hue:7','hue:8'],[[255,0,0],[0,0,0]],100,160);
+  await sleep(85);
+  const middle=packets.at(-1).readUInt16BE(53);
+  assert.ok(middle>0 && middle<65535, `expected an intermediate value, got ${middle}`);
+  await sleep(120);
+  assert.equal(packets.at(-1).readUInt16BE(53),65535);
+  await stream.stop(); const count=packets.length; await sleep(60); assert.equal(packets.length,count);
 });
 
 test('releases the area and falls back when the DTLS handshake fails', async () => {

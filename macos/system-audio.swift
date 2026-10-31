@@ -6,6 +6,7 @@ import AVFoundation
 
 final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
     private var bass: [Float] = []
+    private var lowMid: [Float] = []
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, sampleBuffer.isValid else { return }
         try? sampleBuffer.withAudioBufferList { list, _ in
@@ -16,22 +17,33 @@ final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
             let count = Int(pcm.frameLength)
             guard count > 0 else { return }
             let channelCount = Int(format.channelCount)
-            if bass.count != channelCount { bass = Array(repeating: 0, count: channelCount) }
+            if bass.count != channelCount { bass = Array(repeating: 0, count: channelCount); lowMid = Array(repeating: 0, count: channelCount) }
             let alpha = Float(1.0 - exp(-2.0 * Double.pi * 180.0 / description.mSampleRate))
+            let midAlpha = Float(1.0 - exp(-2.0 * Double.pi * 2000.0 / description.mSampleRate))
             var sum: Float = 0
             var fullSum: Float = 0
+            var midSum: Float = 0
+            var highSum: Float = 0
             for channel in 0..<channelCount {
                 var filtered = bass[channel]
+                var middle = lowMid[channel]
                 for index in 0..<count {
-                    filtered += alpha * (channels[channel][index] - filtered)
+                    let sample = channels[channel][index]
+                    filtered += alpha * (sample - filtered)
+                    middle += midAlpha * (sample - middle)
                     sum += filtered * filtered
-                    fullSum += channels[channel][index] * channels[channel][index]
+                    fullSum += sample * sample
+                    midSum += (middle - filtered) * (middle - filtered)
+                    highSum += (sample - middle) * (sample - middle)
                 }
                 bass[channel] = filtered
+                lowMid[channel] = middle
             }
             let rms = sqrt(sum / Float(count * channelCount))
             let loudness = sqrt(fullSum / Float(count * channelCount))
-            print(String(format: "%.5f %.5f", min(1.0, rms * 6.0), min(1.0, loudness * 4.0)))
+            let mid = sqrt(midSum / Float(count * channelCount))
+            let high = sqrt(highSum / Float(count * channelCount))
+            print(String(format: "%.5f %.5f %.5f %.5f", min(1.0, rms * 6.0), min(1.0, loudness * 4.0), min(1.0, mid * 6.0), min(1.0, high * 8.0)))
             fflush(stdout)
         }
     }

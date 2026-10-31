@@ -26,15 +26,16 @@ export class MusicPlayer {
   analyze(path) {
     const child = spawn('ffmpeg', ['-hide_banner','-loglevel','error','-re','-stream_loop','-1','-i',path,'-f','s16le','-ac','1','-ar','8000','pipe:1'], { stdio:['ignore','pipe','ignore'] });
     this.analyzer = child;
-    let pending = Buffer.alloc(0), bass = 0;
+    let pending = Buffer.alloc(0), bass = 0, lowMid = 0;
     const alpha = 1 - Math.exp(-2 * Math.PI * 180 / 8000);
+    const midAlpha = 1 - Math.exp(-2 * Math.PI * 2000 / 8000);
     child.stdout.on('data', buffer => {
       pending = Buffer.concat([pending, buffer]);
       while (pending.length >= 400) {
-        let bassSum = 0, fullSum = 0;
-        for (let i=0; i<400; i+=2) { const sample = pending.readInt16LE(i)/32768; bass += alpha * (sample - bass); bassSum += bass*bass; fullSum += sample*sample; }
+        let bassSum = 0, fullSum = 0, midSum = 0, highSum = 0;
+        for (let i=0; i<400; i+=2) { const sample = pending.readInt16LE(i)/32768; bass += alpha * (sample - bass); lowMid += midAlpha * (sample - lowMid); bassSum += bass*bass; fullSum += sample*sample; midSum += (lowMid-bass)**2; highSum += (sample-lowMid)**2; }
         this.level = Math.min(1, Math.sqrt(bassSum/200)*6);
-        this.onLevel({ bass:this.level, loudness:Math.min(1, Math.sqrt(fullSum/200)*4) });
+        this.onLevel({ bass:this.level, loudness:Math.min(1, Math.sqrt(fullSum/200)*4), mid:Math.min(1, Math.sqrt(midSum/200)*6), high:Math.min(1, Math.sqrt(highSum/200)*8) });
         pending = pending.subarray(400);
       }
     });

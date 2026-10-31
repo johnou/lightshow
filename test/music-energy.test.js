@@ -14,3 +14,9 @@ test('tracks sustained changes in loudness without reacting to a single spike', 
   assert.equal(energy.snapshot().state,'quiet');
   assert.ok(energy.snapshot().level < 0.03);
 });
+test('keeps independent smoothed bass, mid and high signals', () => {
+  const energy=new MusicEnergy();
+  for (let time=0; time<1000; time+=25) energy.feed(0.4,time,{bass:0.8,mid:0.1,high:0.3});
+  const bands=energy.snapshot().bands;
+  assert.ok(bands[0]>bands[2] && bands[2]>bands[1]);
+});
