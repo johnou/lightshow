@@ -26,6 +26,13 @@ export function parsePixels(message, count, virtual = VIRTUAL) {
   return Array.from({length:count}, (_, i) => [pixels[i*3], pixels[i*3+1], pixels[i*3+2]]);
 }
 
+export function colorsForBulbs(pixels) {
+  const lead = pixels[0];
+  if (!lead) return [];
+  // Energy is a level bar: share some of its leading color with every bulb.
+  return pixels.map(rgb => rgb.map((channel, i) => Math.round(channel * 0.6 + lead[i] * 0.4)));
+}
+
 async function freePort() {
   const server=createServer();
   await new Promise((resolve,reject) => { server.once('error',reject); server.listen(0, '127.0.0.1', resolve); });
@@ -65,7 +72,7 @@ export class LedFxEngine {
       this.child=child;
       for (const stream of [child.stdout,child.stderr]) stream.on('data', chunk => { this.logs=(this.logs+chunk.toString()).slice(-3000); });
       child.on('error', error => { this.exit=error; if (this.ready && !this.stopping) this.fail(error); });
-      child.on('exit', (code,signal) => { this.exit=new Error(`LedFx exited (${signal || code}).`); if (this.ready && !this.stopping) this.fail(this.exit); });
+      child.on('exit', (code,signal) => { this.exit=new Error(`LedFx exited (${signal || code}). ${this.logs.trim().split("\n").slice(-4).join(" ")}`); if (this.ready && !this.stopping) this.fail(this.exit); });
       const deadline=Date.now()+this.startupTimeoutMs;
       let info;
       while (Date.now()<deadline) {
@@ -81,7 +88,7 @@ export class LedFxEngine {
         const colors=parsePixels(message,this.ids.length);
         if (!colors || !this.ready) return;
         this.counters.framesReceived++;
-        try { this.onFrame(colors); } catch (error) { this.fail(error); }
+        try { this.onFrame(colorsForBulbs(colors)); } catch (error) { this.fail(error); }
       });
       ws.addEventListener('close', () => { if (this.ready && !this.stopping) this.fail(new Error('LedFx connection closed.')); });
       ws.addEventListener('error', () => { if (this.ready && !this.stopping) this.fail(new Error('LedFx connection failed.')); });

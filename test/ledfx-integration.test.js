@@ -32,6 +32,9 @@ test('real LedFx responds to synthetic music and shuts down cleanly', { skip:!ex
     assert.ok(frames.length > 30, 'LedFx produced output frames');
     assert.ok(new Set(frames.map(entry => JSON.stringify(entry.frame))).size > 1, 'output colors changed');
     assert.ok(audible > silent + 1, `audio affected colors: silence ${silent}, music ${audible}`);
+    const musicFrames = frames.filter(frame => frame.at > 3500);
+    const perLight = [0,1,2,3,4].map(i => musicFrames.reduce((sum, entry) => sum + Math.max(...entry.frame[i]), 0) / musicFrames.length);
+    assert.ok(perLight.every(level => level >= perLight[0] * 0.3), `all lights should respond during music; average levels: ${perLight.map(Math.round)}`);
     assert.equal(errors.length, 0);
     await engine.setPalette([[255,100,0],[70,0,255],[0,200,80]]);
   } finally {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { LedFxEngine, effectConfig, parsePixels } from '../ledfx-engine.js';
+import { LedFxEngine, colorsForBulbs, effectConfig, parsePixels } from '../ledfx-engine.js';
 
 test('converts a scene palette to real LedFx Energy options', () => {
   assert.deepEqual(effectConfig([[255,16,0],[0,32,254],[3,4,5]]), {color_lows:'#ff1000',color_mids:'#0020fe',color_high:'#030405',blur:0,mirror:false});
@@ -15,6 +15,13 @@ test('decodes only complete output frames from the intended dummy device', () =>
   assert.equal(parsePixels({...msg,shape:[1,3]},2),null);
   assert.equal(parsePixels({...msg,is_device:false},2),null);
   assert.equal(parsePixels({...msg,pixels:'AA=='},2),null);
+});
+
+test('later bulbs still respond when the LedFx energy bar is short', () => {
+  const quiet = colorsForBulbs([[0,0,0],[0,0,0],[0,0,0]]);
+  const music = colorsForBulbs([[220,100,20],[40,10,0],[0,0,0]]);
+  assert.ok(quiet.every(rgb => rgb.every(value => value === 0)), 'silence remains dark');
+  assert.ok(music.every(rgb => Math.max(...rgb) >= Math.max(...music[0]) * 0.3), `all bulbs should react: ${JSON.stringify(music)}`);
 });
 
 test('paces bursts, drops oldest excess audio, and cancels its timer', async () => {

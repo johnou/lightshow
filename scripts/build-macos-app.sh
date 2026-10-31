@@ -18,7 +18,7 @@ trap 'rm -rf "$work"' EXIT
 app="$work/Lightshow.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$work/AppIcon.iconset"
 cp "$repo/macos/Info.plist" "$app/Contents/Info.plist"
-cp "$repo/package.json" "$repo/LICENSE" "$repo/server.js" "$repo/show-runner.js" "$repo/music-player.js" "$repo/system-audio.js" "$repo/beat-detector.js" "$repo/music-energy.js" "$repo/ledfx-engine.js" "$repo/govee-stream.js" "$repo/hue-entertainment.js" "$repo/mac-helpers.js" "$repo/youtube-links.js" "$repo/light-selection.js" "$app/Contents/Resources/"
+cp "$repo/package.json" "$repo/LICENSE" "$repo/server.js" "$repo/show-runner.js" "$repo/music-player.js" "$repo/system-audio.js" "$repo/beat-detector.js" "$repo/music-energy.js" "$repo/ledfx-engine.js" "$repo/govee-stream.js" "$repo/govee-bass.js" "$repo/hue-entertainment.js" "$repo/mac-helpers.js" "$repo/youtube-links.js" "$repo/light-selection.js" "$app/Contents/Resources/"
 cp -R "$repo/public" "$app/Contents/Resources/public"
 cp -R "$repo/node_modules" "$app/Contents/Resources/node_modules"
 cp -R "$python_base" "$app/Contents/Resources/ledfx-python"

@@ -10,6 +10,7 @@ import { BeatDetector } from './beat-detector.js';
 import { MusicEnergy } from './music-energy.js';
 import { LedFxEngine } from './ledfx-engine.js';
 import { GoveeStream } from './govee-stream.js';
+import { GoveeBass } from './govee-bass.js';
 import { HueEntertainment, entertainmentAreas, entertainmentSelection } from './hue-entertainment.js';
 import { ensureMacHelpers, mediaKey } from './mac-helpers.js';
 import { normalizeMusicURL } from './youtube-links.js';
@@ -123,13 +124,14 @@ const entertainment = new HueEntertainment((credentials, path, method, body) => 
 const entertainmentConfig = () => config.hueEntertainment && config.hue?.ip ? { ...config.hueEntertainment, ip:config.hue.ip } : null;
 let showRunner;
 const goveeStream = new GoveeStream(sendGovee);
+const goveeBass = new GoveeBass(sendGovee);
 const ledfxPython = process.env.LIGHTSHOW_LEDFX_PYTHON || (process.env.LIGHTSHOW_APP_EXECUTABLE ? join(moduleRoot, 'ledfx-python', 'bin', 'python3.11') : join(moduleRoot, '.lightshow-tools', 'ledfx-venv', 'bin', 'python'));
 const ledfx = new LedFxEngine({ python:ledfxPython, onFrame: colors => { ledfxFrame = colors; }, onError: error => audioFailure(`LedFx: ${error.message}`) });
 const detectedBeat = () => { if (showRunner?.beat()) { lastAppliedBeat = Date.now(); appliedBeats++; } };
 let beatDetector = new BeatDetector(detectedBeat);
 let musicEnergy = new MusicEnergy();
-const audioSample = ({ bass, loudness, mid, high }) => { audioLevel = bass; lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample, { bass, mid, high }); const onset = showRunner?.show?.musicStyle === 'immersive' ? Math.max(bass, mid * 0.55, high * 0.45) : bass; beatDetector.feed(onset, lastAudioSample); };
-function showStatus() { return { ...showRunner.status(), warnings:[...showWarnings, ...(entertainment.warning ? [entertainment.warning] : []), ...goveeStream.status().failures.map(failure => `${failure.id}: ${failure.message}`)], hueEntertainment:entertainment.area?.name || null, goveeStreamingCount:goveeStream.status().submitted.length, ledfx:ledfx.stats, audio: { level:audioLevel, energy:musicEnergy.snapshot().state, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
+const audioSample = ({ bass, loudness, mid, high }) => { audioLevel = bass; const show = showRunner?.status(); if (show?.running && show.musicSync && !show.goveeStreaming) goveeBass.update(show.ids.map(id => govee.get(id)).filter(Boolean), show.palette, show.brightness, bass); lastAudioSample = Date.now(); if (loudness > 0.03) lastAudibleSample = lastAudioSample; musicEnergy.feed(loudness, lastAudioSample, { bass, mid, high }); const onset = showRunner?.show?.musicStyle === 'immersive' ? Math.max(bass, mid * 0.55, high * 0.45) : bass; beatDetector.feed(onset, lastAudioSample); };
+function showStatus() { return { ...showRunner.status(), warnings:[...showWarnings, ...goveeBass.errors, ...(entertainment.warning ? [entertainment.warning] : []), ...goveeStream.status().failures.map(failure => `${failure.id}: ${failure.message}`)], hueEntertainment:entertainment.area?.name || null, goveeStreamingCount:goveeStream.status().submitted.length, ledfx:ledfx.stats, audio: { level:audioLevel, energy:musicEnergy.snapshot().state, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
 const audioFailure = message => { if (showRunner) changeShow(() => showRunner.fail(message)); };
 const audioPCM = frame => { if (ledfx.ready) ledfx.feed(frame); };
 const musicPlayer = new MusicPlayer(audioFailure, audioSample, audioPCM);
@@ -141,7 +143,7 @@ async function sendShowFrame(ids, colors, brightness, reactive, transitionMs = 0
   const goveeIds = new Set(goveeStream.status().submitted);
   goveeStream.update(new Map(ids.map((id, i) => [id, colors[i]]).filter(([id]) => goveeIds.has(id))), brightness);
   const results = await Promise.allSettled(ids.map(async (id, i) => {
-    if (streamed.has(id) || goveeIds.has(id)) return;
+    if (streamed.has(id) || goveeIds.has(id) || (id.startsWith('govee:') && showRunner.show?.musicSync && !showRunner.show.goveeStreaming)) return;
     const light = all.get(id);
     if (!light) throw new Error(`A selected light is no longer available: ${id}`);
     return setLight(light, colors[i], brightness, reactive);
@@ -149,7 +151,7 @@ async function sendShowFrame(ids, colors, brightness, reactive, transitionMs = 0
   const errors = results.filter(result => result.status === 'rejected').map(result => result.reason.message);
   showWarnings = errors;
 }
-showRunner = new ShowRunner(sendShowFrame, { energy: () => musicEnergy.snapshot(), onStop: async () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); clearInterval(ledfxTimer); ledfxTimer = null; ledfxFrame = null; showWarnings = []; lastShowFrame = null; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } await Promise.all([entertainment.stop(), goveeStream.stop(), ledfx.stop(), fallbackInFlight]); fallbackInFlight = null; } });
+showRunner = new ShowRunner(sendShowFrame, { energy: () => musicEnergy.snapshot(), onStop: async () => { musicPlayer.stop(); systemAudio.stop(); clearTimeout(availableRefreshTimer); clearInterval(ledfxTimer); ledfxTimer = null; ledfxFrame = null; showWarnings = []; lastShowFrame = null; audioLevel = 0; lastAudioSample = 0; lastAudibleSample = 0; lastAppliedBeat = 0; appliedBeats = 0; if (sleepGuard) { sleepGuard.kill(); sleepGuard = null; } await Promise.all([entertainment.stop(), goveeStream.stop(), goveeBass.reset(), ledfx.stop(), fallbackInFlight]); fallbackInFlight = null; } });
 function updateEntertainment(ids, colors, brightness, transitionMs = 0) {
   const show = showRunner.status();
   const expanded = entertainmentSelection(ids, hueLights.keys(), show.includeAll);
@@ -175,7 +177,7 @@ function renderLedFxFrame() {
   goveeStream.update(new Map(show.ids.map((id, i) => [id, colors[i]]).filter(([id]) => streamedGovee.has(id))), show.brightness);
   if (fallbackInFlight || Date.now() - lastFallbackFrame < 1000) return;
   const all = new Map([...hueLights, ...govee]);
-  const pending = show.ids.flatMap((id, i) => hue.has(id) || streamedGovee.has(id) || !all.has(id) ? [] : [setLight(all.get(id), colors[i], show.brightness, true)]);
+  const pending = show.ids.flatMap((id, i) => hue.has(id) || streamedGovee.has(id) || (id.startsWith('govee:') && !show.goveeStreaming) || !all.has(id) ? [] : [setLight(all.get(id), colors[i], show.brightness, true)]);
   if (!pending.length) return;
   lastFallbackFrame = Date.now();
   fallbackInFlight = Promise.allSettled(pending).then(results => { showWarnings = results.filter(result => result.status === 'rejected').map(result => result.reason.message); }).finally(() => { fallbackInFlight = null; });
@@ -201,7 +203,7 @@ function changeShow(operation) {
 function validateShow(data, allowEmpty = false) {
   const { ids, palette, scene, pace, brightness, musicSync, musicSource } = data;
   const musicStyle = data.musicStyle ?? 'beat';
-  const goveeStreaming = data.goveeStreaming ?? true;
+  const goveeStreaming = data.goveeStreaming ?? false;
   const includeAll = data.includeAll === true;
   const beatOffset = data.beatOffset ?? 0;
   const all = new Map([...hueLights, ...govee]);

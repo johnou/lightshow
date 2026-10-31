@@ -13,7 +13,7 @@ const apiBase = ['johnou.github.io', 'just.johno.it'].includes(location.hostname
 let current = scenes[0], lights = [], selected = new Set(JSON.parse(localStorage.getItem('lightshow-selected') || '[]')), running = false, musicFile = null, serverSource = 'none';
 let updating = Promise.resolve(), pendingUpdates = 0;
 $('all-lights').checked = localStorage.getItem('lightshow-all-lights') !== 'false';
-$('govee-streaming').checked = localStorage.getItem('lightshow-govee-streaming') !== 'false';
+$('govee-streaming').checked = localStorage.getItem('lightshow-govee-streaming') === 'true';
 $('music-style').value = localStorage.getItem('lightshow-music-style') === 'beat' ? 'beat' : 'immersive';
 async function api(path, options = {}) { const response = await fetch(apiBase + path, { ...options, headers: { 'Content-Type': 'application/json' } }); const data = await response.json(); if (response.status === 401 && data.loginRequired) { if (!$('login').open) $('login').showModal(); throw new Error('Enter the connection code to continue.'); } if (!response.ok) throw new Error(data.error || data.errors?.join('; ') || 'Request failed'); return data; }
 let toastTimer; function toast(message) { $('toast').textContent = message; $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 4500); }
