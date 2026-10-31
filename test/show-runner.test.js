@@ -42,3 +42,9 @@ test('beats can advance a reactive show and are rate-limited', async () => {
   runner.beat(); await sleep(5); assert.equal(count,2);
   await runner.stop();
 });
+test('reactive shows do not advance on a free-running timer without a beat', async () => {
+  let count=0; const runner=new ShowRunner(async () => { count++; });
+  await runner.start({ ...settings, pace:20, musicSync:true });
+  await sleep(70); assert.equal(count,1);
+  await runner.stop();
+});

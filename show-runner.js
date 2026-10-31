@@ -59,7 +59,7 @@ export class ShowRunner {
     } finally {
       this.inFlight = null;
     }
-    if (this.show && generation === this.generation) this.timer = setTimeout(() => this.tick(generation), this.show.pace);
+    if (this.show && !this.show.musicSync && generation === this.generation) this.timer = setTimeout(() => this.tick(generation), this.show.pace);
   }
 
   async fail(message) {

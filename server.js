@@ -113,7 +113,7 @@ let showRunner;
 const detectedBeat = () => { if (showRunner?.beat()) { lastAppliedBeat = Date.now(); appliedBeats++; } };
 let beatDetector = new BeatDetector(detectedBeat);
 const audioSample = level => { audioLevel = level; lastAudioSample = Date.now(); if (level > 0.03) lastAudibleSample = lastAudioSample; beatDetector.feed(level); };
-function showStatus() { return { ...showRunner.status(), warnings:showWarnings, audio: { level:audioLevel, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats } }; }
+function showStatus() { return { ...showRunner.status(), warnings:showWarnings, audio: { level:audioLevel, lastSampleAgeMs:lastAudioSample ? Date.now()-lastAudioSample : null, lastSoundAgeMs:lastAudibleSample ? Date.now()-lastAudibleSample : null, lastBeatAgeMs:lastAppliedBeat ? Date.now()-lastAppliedBeat : null, beats:appliedBeats, bpm:beatDetector.period ? Math.round(60000 / beatDetector.period) : null } }; }
 const audioFailure = message => { if (showRunner) changeShow(() => showRunner.fail(message)); };
 const musicPlayer = new MusicPlayer(audioFailure, audioSample);
 const systemAudio = new SystemAudio(audioSample, audioFailure);
@@ -137,11 +137,12 @@ function changeShow(operation) {
 function validateShow(data, allowEmpty = false) {
   const { ids, palette, scene, pace, brightness, musicSync, musicSource } = data;
   const includeAll = data.includeAll === true;
+  const beatOffset = data.beatOffset ?? 0;
   const all = new Map([...hueLights, ...govee]);
   const resolvedIds = resolveLightIds(all, ids, includeAll, allowEmpty);
   if (!Array.isArray(palette) || !palette.length || palette.length > 32 || palette.some(color => !Array.isArray(color) || color.length !== 3 || color.some(value => !Number.isInteger(value) || value < 0 || value > 255))) throw new Error('Invalid scene colors.');
-  if (typeof scene !== 'string' || scene.length > 80 || !Number.isInteger(pace) || pace < 1000 || pace > 60000 || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || typeof musicSync !== 'boolean' || !['none','file','system'].includes(musicSource) || (musicSync && musicSource === 'none')) throw new Error('Invalid show settings.');
-  return { ids:resolvedIds, palette, scene, pace, brightness, musicSync, musicSource, includeAll, musicName: musicSource === 'file' ? uploadedMusic?.name || '' : '' };
+  if (typeof scene !== 'string' || scene.length > 80 || !Number.isInteger(pace) || pace < 1000 || pace > 60000 || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || typeof musicSync !== 'boolean' || !['none','file','system'].includes(musicSource) || (musicSync && musicSource === 'none') || !Number.isInteger(beatOffset) || beatOffset < -300 || beatOffset > 300) throw new Error('Invalid show settings.');
+  return { ids:resolvedIds, palette, scene, pace, brightness, musicSync, musicSource, includeAll, beatOffset, musicName: musicSource === 'file' ? uploadedMusic?.name || '' : '' };
 }
 function reconcileAvailableLights(generation = showRunner.generation) {
   const current = showRunner.status();
@@ -251,7 +252,7 @@ const server = http.createServer(async (req, res) => {
       if (settings.musicSource === 'file' && !uploadedMusic) throw new Error('Choose a soundtrack first.');
       let helpers;
       if (settings.musicSource === 'system' && settings.musicSync) helpers = await ensureMacHelpers();
-      await showRunner.start(settings); beatDetector = new BeatDetector(detectedBeat);
+      await showRunner.start(settings); beatDetector = new BeatDetector(detectedBeat); beatDetector.setOffset(settings.beatOffset);
       try {
         if (settings.musicSource === 'file') await musicPlayer.start(uploadedMusic.path, settings.musicSync);
         if (settings.musicSource === 'system' && settings.musicSync) await systemAudio.start(helpers.audio, helpers.audioArgs);
@@ -261,7 +262,7 @@ const server = http.createServer(async (req, res) => {
       scheduleAvailableRefresh(1000);
       return showRunner.status();
     })); }
-    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(() => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const status = showRunner.update(settings); scheduleAvailableRefresh(1000); return status; })); }
+    if (url.pathname === '/api/show/update' && req.method === 'POST') { const settings = validateShow(await bodyOf(req), true); return json(res, 200, await changeShow(() => { const current = showRunner.status(); if (settings.musicSource !== current.musicSource || settings.musicSync !== current.musicSync) throw new Error('Stop the show before changing its soundtrack settings.'); const status = showRunner.update(settings); beatDetector.setOffset(settings.beatOffset); scheduleAvailableRefresh(1000); return status; })); }
     if (url.pathname === '/api/show/stop' && req.method === 'POST') return json(res, 200, await changeShow(() => showRunner.stop()));
     if (url.pathname === '/api/show' && req.method === 'POST') { const { ids, colors, brightness } = await bodyOf(req); if (!Array.isArray(ids) || ids.length > 100 || !Array.isArray(colors) || colors.length !== ids.length || !Number.isInteger(brightness) || brightness < 1 || brightness > 100 || colors.some(c => !Array.isArray(c) || c.length !== 3 || c.some(v => !Number.isInteger(v) || v < 0 || v > 255))) throw new Error('Invalid show request.'); const all = new Map([...hueLights, ...govee]); if (ids.some(id => !all.has(id))) throw new Error('A selected light is no longer available. Refresh your lights.'); const results = await Promise.allSettled(ids.map((id, i) => setLight(all.get(id), colors[i], brightness))); const errors = results.filter(r => r.status === 'rejected').map(r => r.reason.message); return json(res, errors.length ? 502 : 200, { sent: ids.length-errors.length, errors }); }
     if (req.method !== 'GET' || url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Not found' });
