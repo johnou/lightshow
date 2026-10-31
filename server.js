@@ -8,6 +8,7 @@ import { MusicPlayer } from './music-player.js';
 import { SystemAudio } from './system-audio.js';
 import { BeatDetector } from './beat-detector.js';
 import { ensureMacHelpers, mediaKey } from './mac-helpers.js';
+import { normalizeMusicURL } from './youtube-links.js';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
@@ -19,6 +20,7 @@ const root = resolve(fileURLToPath(new URL('./public', import.meta.url)));
 const dataRoot = process.env.LIGHTSHOW_DATA_DIR ? resolve(process.env.LIGHTSHOW_DATA_DIR) : fileURLToPath(new URL('.', import.meta.url));
 const configPath = join(dataRoot, '.lightshow.json');
 const goveePath = join(dataRoot, '.lightshow-govee.json');
+const musicLinksPath = join(dataRoot, '.lightshow-music-links.json');
 const port = Number(process.env.PORT || 4177);
 const lanEnabled = process.env.LIGHTSHOW_LAN === '1';
 const lanAddresses = Object.values(networkInterfaces()).flat().filter(x => x && x.family === 'IPv4' && !x.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(x.address)).map(x => x.address);
@@ -32,6 +34,9 @@ const govee = new Map();
 let knownGovee = [];
 try { knownGovee = JSON.parse(await readFile(goveePath, 'utf8')); } catch {}
 let hueLights = new Map();
+let musicLinks = [];
+try { const links = JSON.parse(await readFile(musicLinksPath, 'utf8')); if (Array.isArray(links)) musicLinks = links.filter(link => link && typeof link.id === 'string' && typeof link.name === 'string' && typeof link.url === 'string').slice(0, 100); } catch {}
+let musicLinkOperation = Promise.resolve();
 const origins = new Set(['https://johnou.github.io', 'https://just.johno.it', `http://localhost:${port}`, `http://127.0.0.1:${port}`]);
 const isPrivateIp = ip => isIP(ip) === 4 && (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip));
 knownGovee = Array.isArray(knownGovee) ? knownGovee.filter(d => d && typeof d.id === 'string' && d.id.startsWith('govee:') && typeof d.name === 'string' && isPrivateIp(d.ip)).slice(0, 100) : [];
@@ -184,6 +189,25 @@ const server = http.createServer(async (req, res) => {
       uploadedMusic = { path, name:(url.searchParams.get('name') || 'Soundtrack').slice(0, 120) };
       return json(res, 200, { name:uploadedMusic.name });
     }
+    if (url.pathname === '/api/music/links' && req.method === 'GET') return json(res, 200, { links:musicLinks });
+    if (url.pathname === '/api/music/links' && req.method === 'POST') {
+      const { name, link } = await bodyOf(req); const normalized = normalizeMusicURL(link);
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 80) throw new Error('Add a name of up to 80 characters.');
+      const operation = musicLinkOperation.then(async () => { if (musicLinks.length >= 100) throw new Error('You can save up to 100 links.'); const entry = { id:randomBytes(12).toString('hex'), name:name.trim(), url:normalized }; const updated = [...musicLinks, entry]; await writeFile(musicLinksPath, JSON.stringify(updated), { mode:0o600 }); musicLinks = updated; return entry; });
+      musicLinkOperation = operation.catch(() => {}); return json(res, 200, { link:await operation });
+    }
+    if (url.pathname === '/api/music/links/remove' && req.method === 'POST') {
+      const { id } = await bodyOf(req);
+      const operation = musicLinkOperation.then(async () => { if (!musicLinks.some(link => link.id === id)) throw new Error('Saved link not found.'); const updated = musicLinks.filter(link => link.id !== id); await writeFile(musicLinksPath, JSON.stringify(updated), { mode:0o600 }); musicLinks = updated; });
+      musicLinkOperation = operation.catch(() => {}); await operation; return json(res, 200, { ok:true });
+    }
+    if (url.pathname === '/api/music/open' && req.method === 'POST') {
+      const { link } = await bodyOf(req); const normalized = normalizeMusicURL(link);
+      if (process.platform !== 'darwin') throw new Error('Opening YouTube Music on the Mac requires macOS.');
+      const open = args => new Promise((resolve, reject) => { const child = spawn('/usr/bin/open', args, { stdio:'ignore' }); child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error('Could not open YouTube Music.'))); });
+      try { await open(['-a', 'YouTube Music', normalized]); } catch { await open([normalized]); }
+      return json(res, 200, { ok:true });
+    }
     if (url.pathname === '/api/media' && req.method === 'POST') {
       const { action } = await bodyOf(req);
       if (action === 'open') {
@@ -191,7 +215,7 @@ const server = http.createServer(async (req, res) => {
         await new Promise((resolve, reject) => { const child=spawn('/usr/bin/open', ['https://music.youtube.com'], { stdio:'ignore' }); child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error('Could not open YouTube Music on the Mac.'))); });
       } else {
         if (!['playpause','next','previous'].includes(action)) throw new Error('Unknown media action.');
-        const helpers = await ensureMacHelpers(); await mediaKey(helpers.media, action);
+        const helpers = await ensureMacHelpers(); await mediaKey(helpers.media, action, helpers.mediaArgs);
       }
       return json(res, 200, { ok:true });
     }
@@ -202,7 +226,7 @@ const server = http.createServer(async (req, res) => {
       await showRunner.start(settings); beatDetector = new BeatDetector(() => showRunner.beat());
       try {
         if (settings.musicSource === 'file') await musicPlayer.start(uploadedMusic.path, settings.musicSync);
-        if (settings.musicSource === 'system' && settings.musicSync) await systemAudio.start(helpers.audio);
+        if (settings.musicSource === 'system' && settings.musicSync) await systemAudio.start(helpers.audio, helpers.audioArgs);
         if (!showRunner.status().running) throw new Error(showRunner.status().error || 'The show stopped while starting.');
       } catch (error) { await showRunner.fail(error.message); throw error; }
       if (process.platform === 'darwin') { sleepGuard = spawn('/usr/bin/caffeinate', ['-i', '-w', String(process.pid)], { stdio:'ignore' }); sleepGuard.on('error', () => {}); }

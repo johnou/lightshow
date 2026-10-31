@@ -14,7 +14,7 @@ before(async () => {
 });
 after(async () => { server?.kill(); await rm(dataDir, { recursive:true, force:true }); });
 test('serves the app and reports device status', async () => {
-  const page = await fetch(base); assert.equal(page.status, 200); assert.match(await page.text(), /Make room for/);
+  const page = await fetch(base); assert.equal(page.status, 200); assert.match(await page.text(), /Your show/);
   const status = await fetch(`${base}/api/status`); assert.equal(status.status, 200); assert.ok(Array.isArray((await status.json()).lights));
 });
 test('rejects untrusted origins and invalid device requests', async () => {
@@ -34,4 +34,14 @@ test('show controls validate input and expose stopped state', async () => {
   assert.equal((await stop.json()).running, false);
   const upload = await fetch(`${base}/api/music?ext=exe`, { method:'POST', headers:{ 'Content-Type':'application/octet-stream' }, body:'invalid' });
   assert.equal(upload.status, 400);
+});
+test('music links can be saved, listed, and removed without exposing credentials', async () => {
+  const headers={ 'Content-Type':'application/json' };
+  const saved=await fetch(`${base}/api/music/links`,{ method:'POST', headers, body:JSON.stringify({name:'Halloween',link:'https://music.youtube.com/playlist?list=PLtest'}) });
+  assert.equal(saved.status,200); const { link }=await saved.json();
+  assert.equal(link.name,'Halloween');
+  const listed=await fetch(`${base}/api/music/links`); assert.equal((await listed.json()).links.length,1);
+  const removed=await fetch(`${base}/api/music/links/remove`,{ method:'POST',headers,body:JSON.stringify({id:link.id}) });
+  assert.equal(removed.status,200);
+  const final=await fetch(`${base}/api/music/links`); assert.equal((await final.json()).links.length,0);
 });

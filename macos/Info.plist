@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Lightshow</string>
+  <key>CFBundleDisplayName</key><string>Lightshow</string>
+  <key>CFBundleIdentifier</key><string>it.johno.lightshow</string>
+  <key>CFBundleExecutable</key><string>Lightshow</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSLocalNetworkUsageDescription</key><string>Lightshow connects to your Hue Bridge and Govee lights on your local network.</string>
+  <key>NSAudioCaptureUsageDescription</key><string>Lightshow listens to your Mac's audio to synchronize your lights with music. Audio is not saved.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>Lightshow uses system audio to synchronize your lights with music. It does not save screen content.</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+</dict></plist>

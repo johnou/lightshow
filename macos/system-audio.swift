@@ -29,6 +29,7 @@ final class AudioMeter: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 }
 
+func runSystemAudio() {
 Task {
     do {
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
@@ -58,3 +59,4 @@ Task {
     }
 }
 dispatchMain()
+}

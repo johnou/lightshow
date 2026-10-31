@@ -2,5 +2,8 @@ node_modules/
 dist/
 .lightshow.json
 .lightshow-govee.json
+.lightshow-music-links.json
 .lightshow-tools/
 .DS_Store
+
+Lightshow.app/

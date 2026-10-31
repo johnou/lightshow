@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 
 export class SystemAudio {
   constructor(onLevel, onError) { this.onLevel = onLevel; this.onError = onError; this.child = null; }
-  start(binary) {
+  start(binary, args = []) {
     return new Promise((resolve, reject) => {
-      const child = spawn(binary, [], { stdio:['ignore','pipe','pipe'] });
+      const child = spawn(binary, args, { stdio:['ignore','pipe','pipe'] });
       this.child = child;
       let ready = false, errors = '', pending = '';
       const timeout = setTimeout(() => { if (!ready && this.child === child) { this.stop(); reject(new Error('Audio capture did not start. Check the permission prompt on the Mac.')); } }, 45000);
